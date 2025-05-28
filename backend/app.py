@@ -17,6 +17,11 @@ import tempfile
 from groq import Groq
 import PyPDF2
 import docx
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Load environment variables
 load_dotenv()
@@ -307,7 +312,89 @@ def analyze_resume_content(resume_content):
         temperature=0.2, # Lower temperature for more consistent and precise output
         max_tokens=1000 # Limit response length to avoid unnecessary content
     )
-    return chat_completion.choices[0].message.content
+    
+    # Parse the response into a structured format
+    response_text = chat_completion.choices[0].message.content
+    structured_data = {
+        'Full Name': '',
+        'Email Address': '',
+        'Phone Number': '',
+        'Location': '',
+        'Education': [],
+        'Work Experience': [],
+        'Skills': [],
+        'Years of Experience': 0
+    }
+    
+    try:
+        # Split the response into sections
+        sections = response_text.split('##')
+        
+        for section in sections:
+            if not section.strip():
+                continue
+                
+            # Split section into title and content
+            lines = section.strip().split('\n')
+            title = lines[0].strip()
+            content = '\n'.join(lines[1:]).strip()
+            
+            if 'Full Name' in title:
+                structured_data['Full Name'] = content
+            elif 'Email Address' in title:
+                structured_data['Email Address'] = content
+            elif 'Phone Number' in title:
+                structured_data['Phone Number'] = content
+            elif 'Location' in title:
+                structured_data['Location'] = content
+            elif 'Education' in title:
+                # Parse education entries
+                entries = [entry.strip('- ').strip() for entry in content.split('\n') if entry.strip()]
+                for entry in entries:
+                    if entry and entry != 'Not found':
+                        parts = [part.strip() for part in entry.split(',')]
+                        if len(parts) >= 3:
+                            # Extract year from the last part, handling cases where it might be mixed with location
+                            year_part = parts[-1].strip()
+                            # Try to extract a 4-digit year
+                            year_match = re.search(r'\b(19|20)\d{2}\b', year_part)
+                            year = year_match.group(0) if year_match else None
+                            
+                            structured_data['Education'].append({
+                                'degree': parts[0].strip(),
+                                'institution': parts[1].strip(),
+                                'year': year
+                            })
+            elif 'Work Experience' in title:
+                # Parse work experience entries
+                entries = [entry.strip('- ').strip() for entry in content.split('\n') if entry.strip()]
+                structured_data['Work Experience'] = entries
+            elif 'Skills' in title:
+                # Parse skills
+                skills = [skill.strip() for skill in content.split(',') if skill.strip()]
+                structured_data['Skills'] = skills
+            elif 'Years of Experience' in title:
+                # Parse years of experience
+                try:
+                    years = int(content.strip())
+                    structured_data['Years of Experience'] = years
+                except ValueError:
+                    structured_data['Years of Experience'] = 0
+        
+        return structured_data
+    except Exception as e:
+        logger.error(f"Error parsing resume content: {str(e)}")
+        # Return basic structure with the raw text as full name if parsing fails
+        return {
+            'Full Name': response_text,
+            'Email Address': '',
+            'Phone Number': '',
+            'Location': '',
+            'Education': [],
+            'Work Experience': [],
+            'Skills': [],
+            'Years of Experience': 0
+        }
 
 def main():
     st.title("Resume Processing System")
