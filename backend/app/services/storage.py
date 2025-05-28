@@ -16,6 +16,7 @@ from config.settings import (
     MAX_FILE_SIZE,
     ALLOWED_FILE_TYPES
 )
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -162,7 +163,7 @@ class FileStorage:
             logger.error(f"Unexpected error in save_file: {str(e)}")
             raise StorageError("An unexpected error occurred while saving the file")
 
-    def generate_presigned_url(self, file_path: str, expiration: int = 3600) -> str:
+    def generate_presigned_url(self, file_path: str, expiration: int = 86400) -> str:
         """Generate a presigned URL for temporary access to the file"""
         try:
             if self.storage_type == 's3':
@@ -191,6 +192,10 @@ class FileStorage:
             logger.error(f"Error generating presigned URL: {str(e)}")
             raise StorageError("Failed to generate presigned URL")
 
+    def refresh_presigned_url(self, file_path: str, expiration: int = 86400) -> str:
+        """Generate a fresh presigned URL for an existing file"""
+        return self.generate_presigned_url(file_path, expiration)
+
     async def get_file(self, file_path: str) -> io.BytesIO:
         """Retrieve file from storage"""
         try:
@@ -204,16 +209,38 @@ class FileStorage:
                         bucket = self.bucket_name
                         key = file_path
 
-                    response = self.s3_client.get_object(
-                        Bucket=bucket,
-                        Key=key
-                    )
-                    logger.info(f"File retrieved from S3: {file_path}")
-                    return io.BytesIO(response['Body'].read())
+                    # Add retries for S3 operations
+                    max_retries = 3
+                    retry_count = 0
+                    last_error = None
+
+                    while retry_count < max_retries:
+                        try:
+                            response = self.s3_client.get_object(
+                                Bucket=bucket,
+                                Key=key
+                            )
+                            logger.info(f"File retrieved from S3: {file_path}")
+                            return io.BytesIO(response['Body'].read())
+                        except ClientError as e:
+                            error_code = e.response['Error']['Code']
+                            if error_code == 'NoSuchKey':
+                                raise StorageError(f"File does not exist in S3: {file_path}")
+                            elif error_code in ['SlowDown', 'InternalError', 'ServiceUnavailable']:
+                                last_error = e
+                                retry_count += 1
+                                if retry_count < max_retries:
+                                    time.sleep(2 ** retry_count)  # Exponential backoff
+                                continue
+                            else:
+                                raise StorageError(f"S3 error: {str(e)}")
+                    
+                    if last_error:
+                        raise StorageError(f"Failed to retrieve file after {max_retries} retries: {str(last_error)}")
 
                 except ClientError as e:
                     logger.error(f"S3 retrieval error: {str(e)}")
-                    raise StorageError("Failed to retrieve file from storage")
+                    raise StorageError(f"Failed to retrieve file from storage: {str(e)}")
 
             else:
                 try:
@@ -222,15 +249,17 @@ class FileStorage:
                     logger.info(f"File retrieved from local storage: {file_path}")
                     return io.BytesIO(content)
 
+                except FileNotFoundError:
+                    raise StorageError(f"File not found in local storage: {file_path}")
                 except Exception as e:
                     logger.error(f"Local storage retrieval error: {str(e)}")
-                    raise StorageError("Failed to retrieve file from local storage")
+                    raise StorageError(f"Failed to retrieve file from local storage: {str(e)}")
 
         except StorageError as se:
             raise se
         except Exception as e:
             logger.error(f"Unexpected error in get_file: {str(e)}")
-            raise StorageError("An unexpected error occurred while retrieving the file")
+            raise StorageError(f"An unexpected error occurred while retrieving the file: {str(e)}")
 
     async def delete_file(self, file_path: str) -> None:
         """Delete file from storage"""

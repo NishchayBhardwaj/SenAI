@@ -161,7 +161,7 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
                 file_path, file_content, presigned_url = await file_storage.save_file(
                     io.BytesIO(file_content),  # Create new file-like object from content
                     file_extension,
-                    candidate_name
+                    file.filename  # Pass original filename instead of candidate_name
                 )
                 logger.info(f"File saved successfully at: {file_path}")
             except StorageError as e:
@@ -185,6 +185,7 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
                     existing_candidate.years_experience = extracted_data.get('Years of Experience', existing_candidate.years_experience)
                     existing_candidate.resume_file_path = file_path
                     existing_candidate.resume_s3_url = presigned_url
+                    existing_candidate.original_filename = file.filename  # Set original filename
                     
                     # Delete existing education and skills
                     db.query(Education).filter(Education.candidate_id == existing_candidate.candidate_id).delete()
@@ -201,6 +202,7 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
                         years_experience=extracted_data.get('Years of Experience', 0),
                         resume_file_path=file_path,
                         resume_s3_url=presigned_url,
+                        original_filename=file.filename,  # Set original filename
                         status='pending'
                     )
                     db.add(candidate)

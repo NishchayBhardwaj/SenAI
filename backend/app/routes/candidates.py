@@ -178,3 +178,57 @@ async def update_candidate_status(candidate_id: int, status: str, db: Session = 
     candidate.status = status
     db.commit()
     return {"message": error_messages.get_valid_response_message(200)}
+
+@router.post("/{candidate_id}/refresh-resume-url")
+async def refresh_resume_url(candidate_id: int, db: Session = Depends(get_db)):
+    """Refresh the presigned URL for a candidate's resume"""
+    try:
+        candidate = db.query(Candidate).filter(Candidate.candidate_id == candidate_id).first()
+        if not candidate:
+            raise HTTPException(status_code=404, detail="Candidate not found")
+        
+        if not candidate.resume_file_path:
+            raise HTTPException(status_code=404, detail="No resume file found for this candidate")
+        
+        # Import FileStorage here to avoid circular imports
+        from services.storage import FileStorage
+        file_storage = FileStorage()
+        
+        # First, get the existing file content
+        try:
+            file_content = await file_storage.get_file(candidate.resume_file_path)
+            
+            # Get file extension from original path
+            file_extension = candidate.resume_file_path.split('.')[-1]
+            
+            # Delete the old file
+            await file_storage.delete_file(candidate.resume_file_path)
+            
+            # Save the file with a new path and get new presigned URL
+            new_file_path, _, new_presigned_url = await file_storage.save_file(
+                file_content,
+                file_extension,
+                candidate.original_filename
+            )
+            
+            # Update the candidate record with the new paths
+            candidate.resume_file_path = new_file_path
+            candidate.resume_s3_url = new_presigned_url
+            db.commit()
+            
+            return {
+                "message": "Resume URL refreshed successfully",
+                "new_url": new_presigned_url,
+                "new_file_path": new_file_path,
+                "candidate_id": candidate_id
+            }
+            
+        except Exception as e:
+            logger.error(f"Error accessing file: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to access resume file: {str(e)}")
+        
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        logger.error(f"Error refreshing resume URL for candidate {candidate_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to refresh resume URL: {str(e)}")
