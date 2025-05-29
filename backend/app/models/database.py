@@ -107,7 +107,6 @@ class Education(Base):
     degree = Column(String(255))
     institution = Column(String(255))
     graduation_year = Column(Integer)
-    gpa = Column(Float, nullable=True)
 
     # Relationship
     candidate = relationship("Candidate", back_populates="education")
@@ -134,7 +133,6 @@ class WorkExperience(Base):
     start_date = Column(String(50))  # Storing as string since we may not have exact dates
     end_date = Column(String(50))    # Could be "Present" or a date
     duration = Column(String(100))   # e.g., "2 years 3 months"
-    description = Column(Text, nullable=True)
 
     # Relationship
     candidate = relationship("Candidate", back_populates="work_experiences")
@@ -236,14 +234,40 @@ def upsert_candidate_data(parsed_data, resume_file_path=None, resume_s3_url=None
             )
             db.add(education)
         
-        # Add skills
-        for skill_name in parsed_data.get('skills', []):
-            skill = Skill(
-                candidate_id=candidate.candidate_id,
-                skill_name=skill_name,
-                skill_category=SkillCategory.TECHNICAL,
-                proficiency_level=ProficiencyLevel.UNKNOWN
-            )
+        # Add skills - handle both string list and dict list formats
+        for skill_item in parsed_data.get('skills', []):
+            if isinstance(skill_item, dict):
+                # Dictionary format with category and proficiency
+                skill_name = skill_item.get('skill_name', '')
+                skill_category_str = skill_item.get('skill_category', 'technical').upper()
+                proficiency_level_str = skill_item.get('proficiency_level', 'intermediate').upper()
+                
+                # Convert string to enum value
+                try:
+                    skill_category = SkillCategory[skill_category_str]
+                except (KeyError, ValueError):
+                    skill_category = SkillCategory.TECHNICAL
+                
+                try:
+                    proficiency_level = ProficiencyLevel[proficiency_level_str]
+                except (KeyError, ValueError):
+                    proficiency_level = ProficiencyLevel.INTERMEDIATE
+                
+                skill = Skill(
+                    candidate_id=candidate.candidate_id,
+                    skill_name=skill_name,
+                    skill_category=skill_category,
+                    proficiency_level=proficiency_level
+                )
+            else:
+                # String format (legacy)
+                skill = Skill(
+                    candidate_id=candidate.candidate_id,
+                    skill_name=skill_item,
+                    skill_category=SkillCategory.TECHNICAL,
+                    proficiency_level=ProficiencyLevel.UNKNOWN
+                )
+            
             db.add(skill)
         
         # Add work experiences

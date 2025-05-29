@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routes import candidates, dashboard, resumes
+from routes import candidates, dashboard, resumes, batch_processing, shortlist
 import uvicorn
 import os
     
@@ -17,9 +17,11 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(shortlist.router)
 app.include_router(candidates.router)
 app.include_router(dashboard.router)
 app.include_router(resumes.router)
+app.include_router(batch_processing.router)
 
 if __name__ == "__main__":
     # Print startup information
@@ -33,6 +35,8 @@ if __name__ == "__main__":
     print("   • Candidates: http://localhost:8000/api/candidates")
     print("   • Dashboard: http://localhost:8000/api/dashboard")
     print("   • Resumes: http://localhost:8000/api/resumes")
+    print("   • Batch Processing: http://localhost:8000/api/batch")
+    print("   • Shortlisting: http://localhost:8000/api/candidates/shortlist")
     print("\n⚠️  Press Ctrl+C to stop the server")
     print("="*50 + "\n")
     

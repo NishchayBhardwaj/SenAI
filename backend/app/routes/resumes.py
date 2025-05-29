@@ -6,8 +6,8 @@ import io
 from models.database import get_db, Candidate, Education, Skill, init_db
 from services.storage import FileStorage
 from services.resume_processor import process_file_content, analyze_resume_content
-from config.settings import API_PREFIX
 from utils.error_messages import APIErrorMessages
+from utils.api_paths import RESUME_PATHS, RESUMES_BASE
 from services.storage import StorageError
 
 # Configure logging
@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize router
-router = APIRouter(prefix=f"{API_PREFIX}/resumes", tags=["resumes"])
+router = APIRouter(prefix=RESUMES_BASE, tags=["resumes"])
 
 # Initialize error messages
 error_messages = APIErrorMessages()
@@ -175,6 +175,9 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
                 raise HTTPException(status_code=500, detail=f"Error saving file: {str(e)}")
 
             try:
+                # Categorize skills
+                categorized_skills = categorize_skills(extracted_data.get('Skills', []))
+                
                 # Check if candidate already exists (for updates)
                 if existing_candidate:
                     # Update existing candidate
@@ -221,13 +224,13 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
                     db.add(education)
                 logger.info("Added education records")
 
-                # Add skills
-                for skill in extracted_data.get('Skills', []):
+                # Add skills with categories
+                for skill_data in categorized_skills:
                     skill_record = Skill(
                         candidate_id=candidate.candidate_id,
-                        skill_name=skill,
-                        skill_category='technical',  # Default category
-                        proficiency_level='intermediate'  # Default level
+                        skill_name=skill_data['skill_name'],
+                        skill_category=skill_data['skill_category'],
+                        proficiency_level=skill_data['proficiency_level']
                     )
                     db.add(skill_record)
                 logger.info("Added skill records")
@@ -256,4 +259,76 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
         raise he
     except Exception as e:
         logger.error(f"Unexpected error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+def categorize_skills(skills):
+    """Categorize skills as technical, soft, or language skills"""
+    # Common soft skills list
+    soft_skills = [
+        "leadership", "communication", "teamwork", "problem solving", 
+        "critical thinking", "decision making", "time management", 
+        "adaptability", "flexibility", "creativity", "interpersonal", 
+        "presentation", "negotiation", "collaboration", "emotional intelligence",
+        "conflict resolution", "management", "mentoring", "coaching", "training",
+        "public speaking", "writing", "organizational", "detail-oriented",
+        "multitasking", "analytical", "research", "planning", "coordination",
+        "supervision", "motivation", "customer service", "active listening"
+    ]
+    
+    # Common languages
+    languages = [
+        "english", "spanish", "french", "german", "chinese", "japanese",
+        "italian", "portuguese", "russian", "arabic", "hindi", "korean",
+        "dutch", "swedish", "norwegian", "danish", "finnish", "polish",
+        "turkish", "greek", "hebrew", "vietnamese", "thai", "indonesian"
+    ]
+    
+    categorized_skills = []
+    
+    for skill in skills:
+        skill_name = skill.lower() if isinstance(skill, str) else ""
+        skill_category = "technical"  # Default
+        
+        # Check if it's a soft skill
+        if any(soft_skill in skill_name for soft_skill in soft_skills):
+            skill_category = "soft"
+        
+        # Check if it's a language
+        elif any(language in skill_name for language in languages):
+            skill_category = "language"
+        
+        categorized_skills.append({
+            "skill_name": skill,
+            "skill_category": skill_category,
+            "proficiency_level": "intermediate" if skill_category == "technical" else "advanced"
+        })
+    
+    return categorized_skills
+
+@router.get("/{candidate_id}/view")
+async def view_candidate_resume(candidate_id: int, db: Session = Depends(get_db)):
+    """Get resume URL for a specific candidate"""
+    try:
+        candidate = db.query(Candidate).filter(Candidate.candidate_id == candidate_id).first()
+        if not candidate:
+            raise HTTPException(status_code=404, detail=error_messages.get_error_message(404))
+        
+        if not candidate.resume_s3_url:
+            raise HTTPException(status_code=404, detail="No resume found for this candidate")
+        
+        # Check if the URL might be expired
+        # S3 presigned URLs typically contain an Expires parameter that we can check
+        # For now, we'll just return the URL and let the frontend handle refresh if needed
+        
+        # For S3 URLs, you might want to check if the URL is still valid
+        # This requires making a HEAD request to the URL, which might be expensive
+        # For now, we'll just check if the URL exists and let the client handle refresh if needed
+        
+        return {
+            "resume_url": candidate.resume_s3_url,
+            "filename": candidate.original_filename or f"resume_{candidate_id}.pdf",
+            "candidate_id": candidate_id
+        }
+    except Exception as e:
+        logger.error(f"Error viewing resume for candidate {candidate_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to view resume: {str(e)}") 

@@ -9,7 +9,6 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # API Settings
-API_PREFIX = "/api"
 API_VERSION = "1.0.0"
 API_TITLE = "Resume Parser API"
 API_DESCRIPTION = "API for parsing and analyzing resumes"

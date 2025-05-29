@@ -2,14 +2,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 import logging
 from models.database import get_db, Candidate
-from config.settings import API_PREFIX
+from utils.api_paths import DASHBOARD_PATHS, DASHBOARD_BASE
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Initialize router
-router = APIRouter(prefix=f"{API_PREFIX}/dashboard", tags=["dashboard"])
+router = APIRouter(prefix=DASHBOARD_BASE, tags=["dashboard"])
 
 @router.get("/stats")
 async def get_dashboard_stats(db: Session = Depends(get_db)):
