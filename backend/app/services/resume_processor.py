@@ -149,16 +149,27 @@ def process_txt_content(file: io.BytesIO) -> str:
         raise ResumeProcessingError(f"Failed to process TXT: {str(e)}")
 
 def process_file_content(file: io.BytesIO, file_type: str) -> str:
-    """Extract text from different file types."""
+    """Extract text from different file types and validate resume content."""
     try:
         if file_type == "pdf":
-            return process_pdf_content(file)
+            content = process_pdf_content(file)
         elif file_type == "docx":
-            return process_docx_content(file)
+            content = process_docx_content(file)
         elif file_type == "txt":
-            return process_txt_content(file)
+            content = process_txt_content(file)
         else:
             raise ResumeProcessingError(f"Unsupported file type: {file_type}")
+
+        # Resume validation logic
+        # Consider content invalid if it's blank, too short, or mostly non-alphabetic
+        if not content or len(content.strip()) < 50:
+            raise ResumeProcessingError("Invalid file, please upload a valid resume (file is empty or too short).")
+        # Check if content is mostly non-alphabetic (trash file)
+        alpha_chars = sum(c.isalpha() for c in content)
+        if alpha_chars < 10 or (alpha_chars / max(1, len(content))) < 0.1:
+            raise ResumeProcessingError("Invalid file, please upload a valid resume (file does not contain enough readable text).")
+
+        return content
     except Exception as e:
         logger.error(f"Error processing file: {str(e)}")
         raise ResumeProcessingError(f"Failed to process file: {str(e)}")

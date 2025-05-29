@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import toast from "react-hot-toast";
-import { resumeApi } from "@/src/lib/api";
+import { resumeApi } from "../src/lib/api";
 import {
   ChevronUpIcon,
   MagnifyingGlassIcon,
@@ -12,36 +12,52 @@ import {
 } from "@heroicons/react/24/outline";
 
 export default function Candidateslist() {
-  const [selectedStatus, setSelectedStatus] = useState("");
+  // Advanced filter state
+  const [filters, setFilters] = useState({
+    limit: 100,
+    status: "",
+    minExperience: "",
+    maxExperience: "",
+    skills: "",
+    location: "",
+    company: "",
+    position: "",
+    education: "",
+  });
   const [searchId, setSearchId] = useState("");
   const [searchedCandidate, setSearchedCandidate] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [expandedSkills, setExpandedSkills] = useState(null); // candidate_id or null
 
   const queryClient = useQueryClient();
 
-  // Fetch candidates
+  // Fetch candidates with advanced filters
   const {
     data: candidates,
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["candidates"],
-    queryFn: () => resumeApi.getCandidates(100),
+    queryKey: ["candidates", filters],
+    queryFn: () => {
+      // Convert skills to array if not empty
+      const filterObj = {
+        ...filters,
+        minExperience: filters.minExperience
+          ? Number(filters.minExperience)
+          : undefined,
+        maxExperience: filters.maxExperience
+          ? Number(filters.maxExperience)
+          : undefined,
+        skills: filters.skills
+          ? filters.skills
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : undefined,
+      };
+      return resumeApi.getCandidates(filterObj);
+    },
   });
-
-  // Filter candidates on the client side
-  const filteredCandidates = useMemo(() => {
-    if (!candidates) return [];
-    if (!selectedStatus) return candidates;
-    return candidates.filter(
-      (candidate) => candidate.status === selectedStatus
-    );
-  }, [candidates, selectedStatus]);
-
-  // Determine which candidates to display
-  const displayCandidates = searchedCandidate
-    ? [searchedCandidate]
-    : filteredCandidates;
 
   // Shortlist mutation
   const shortlist = useMutation({
@@ -93,6 +109,14 @@ export default function Candidateslist() {
     setSearchedCandidate(null);
   };
 
+  // Advanced filter UI
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    setFilters((prev) => ({ ...prev, [name]: value }));
+    setSearchedCandidate(null);
+    setSearchId("");
+  };
+
   if (error) {
     return (
       <div className="text-github-danger-fg dark:text-github-dark-danger-fg text-center py-4">
@@ -111,6 +135,11 @@ export default function Candidateslist() {
       "bg-github-danger-subtle dark:bg-github-dark-danger-subtle text-github-danger-fg dark:text-github-dark-danger-fg border border-github-danger-muted dark:border-github-dark-danger-muted",
   };
 
+  // Determine which candidates to display
+  const displayCandidates = searchedCandidate
+    ? [searchedCandidate]
+    : candidates || [];
+
   return (
     <div>
       <div className="mb-6">
@@ -125,12 +154,9 @@ export default function Candidateslist() {
               Filter by Status
             </label>
             <select
-              value={selectedStatus}
-              onChange={(e) => {
-                setSelectedStatus(e.target.value);
-                setSearchedCandidate(null);
-                setSearchId("");
-              }}
+              name="status"
+              value={filters.status}
+              onChange={handleFilterChange}
               className="github-input w-full md:max-w-xs text-sm"
               disabled={searchedCandidate !== null}
             >
@@ -188,6 +214,93 @@ export default function Candidateslist() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+
+        {/* Advanced Filters */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Min Experience
+            </label>
+            <input
+              type="number"
+              name="minExperience"
+              value={filters.minExperience}
+              onChange={handleFilterChange}
+              className="github-input w-full"
+              min="0"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Max Experience
+            </label>
+            <input
+              type="number"
+              name="maxExperience"
+              value={filters.maxExperience}
+              onChange={handleFilterChange}
+              className="github-input w-full"
+              min="0"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Skills (comma separated)
+            </label>
+            <input
+              type="text"
+              name="skills"
+              value={filters.skills}
+              onChange={handleFilterChange}
+              className="github-input w-full"
+              placeholder="e.g. python,react,leadership"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Location</label>
+            <input
+              type="text"
+              name="location"
+              value={filters.location}
+              onChange={handleFilterChange}
+              className="github-input w-full"
+              placeholder="e.g. New York"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Company</label>
+            <input
+              type="text"
+              name="company"
+              value={filters.company}
+              onChange={handleFilterChange}
+              className="github-input w-full"
+              placeholder="e.g. Google"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Position</label>
+            <input
+              type="text"
+              name="position"
+              value={filters.position}
+              onChange={handleFilterChange}
+              className="github-input w-full"
+              placeholder="e.g. Software Engineer"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Education</label>
+            <input
+              type="text"
+              name="education"
+              value={filters.education}
+              onChange={handleFilterChange}
+              className="github-input w-full"
+              placeholder="e.g. Bachelor's"
+            />
           </div>
         </div>
       </div>
@@ -302,7 +415,10 @@ export default function Candidateslist() {
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-github-fg-muted dark:text-github-dark-fg-muted">
                     {candidate.years_experience || "N/A"}
                   </td>
-                  <td className="px-6 py-4 text-sm text-github-fg-muted dark:text-github-dark-fg-muted">
+                  <td
+                    className="px-6 py-4 text-sm text-github-fg-muted dark:text-github-dark-fg-muted"
+                    style={{ position: "relative" }}
+                  >
                     <div className="flex flex-wrap gap-1 max-w-md">
                       {/* Display "No skills listed" if no skills are available */}
                       {!candidate.skills || candidate.skills.length === 0 ? (
@@ -310,7 +426,6 @@ export default function Candidateslist() {
                           No skills listed
                         </span>
                       ) : (
-                        /* If there are skills, display up to 5 of them */
                         <>
                           {candidate.skills.slice(0, 5).map((skill, idx) => {
                             const skillName =
@@ -319,7 +434,6 @@ export default function Candidateslist() {
                                 : typeof skill === "string"
                                 ? skill
                                 : "Unknown";
-
                             return (
                               <span
                                 key={idx}
@@ -330,16 +444,64 @@ export default function Candidateslist() {
                               </span>
                             );
                           })}
-
                           {/* Show the "+X more" badge if there are more than 5 skills */}
                           {candidate.skills.length > 5 && (
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-neutral-muted dark:bg-github-dark-neutral-muted">
+                            <span
+                              className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-neutral-muted dark:bg-github-dark-neutral-muted cursor-pointer hover:bg-github-accent-subtle dark:hover:bg-github-dark-accent-subtle"
+                              onClick={() =>
+                                setExpandedSkills(
+                                  expandedSkills === candidate.candidate_id
+                                    ? null
+                                    : candidate.candidate_id
+                                )
+                              }
+                            >
                               +{candidate.skills.length - 5} more
                             </span>
                           )}
                         </>
                       )}
                     </div>
+                    {/* Popup for all skills */}
+                    {expandedSkills === candidate.candidate_id &&
+                      candidate.skills.length > 5 && (
+                        <div
+                          className="absolute z-50 mt-2 left-0 bg-github-canvas-default dark:bg-github-dark-canvas-default border border-github-border-default dark:border-github-dark-border-default rounded shadow-lg p-4 min-w-[200px] max-w-[350px]"
+                          style={{ top: "100%", minWidth: 200 }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <div className="flex justify-between items-center mb-2">
+                            <span className="font-semibold text-sm">
+                              All Skills
+                            </span>
+                            <button
+                              className="ml-2 text-xs text-github-fg-muted dark:text-github-dark-fg-muted hover:text-github-danger-fg"
+                              onClick={() => setExpandedSkills(null)}
+                            >
+                              Close
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {candidate.skills.map((skill, idx) => {
+                              const skillName =
+                                typeof skill === "object" && skill !== null
+                                  ? skill.skill_name || "Unknown"
+                                  : typeof skill === "string"
+                                  ? skill
+                                  : "Unknown";
+                              return (
+                                <span
+                                  key={idx}
+                                  className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-accent-subtle dark:bg-github-dark-accent-subtle text-github-accent-fg dark:text-github-dark-accent-fg border border-github-accent-muted dark:border-github-dark-accent-muted"
+                                  title={skillName}
+                                >
+                                  {skillName}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <span

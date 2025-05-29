@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useDropzone } from "react-dropzone";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-hot-toast";
@@ -14,12 +14,18 @@ import {
   TrophyIcon,
   EyeIcon,
   ArrowDownTrayIcon,
+  CheckCircleIcon,
+  ExclamationCircleIcon,
+  LightBulbIcon,
 } from "@heroicons/react/24/outline";
-import { resumeApi } from "@/src/lib/api";
+import { resumeApi } from "../src/lib/api";
 
 // Resume Modal Component
 const ResumeModal = ({ isOpen, onClose, resumeUrl, filename }) => {
   const [isDownloading, setIsDownloading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [docxContent, setDocxContent] = useState(null);
+  const iframeRef = useRef(null);
 
   const getFileType = (filename) => {
     const extension = filename.split(".").pop().toLowerCase();
@@ -29,6 +35,30 @@ const ResumeModal = ({ isOpen, onClose, resumeUrl, filename }) => {
   const isPdfFile = (filename) => {
     return getFileType(filename) === "pdf";
   };
+
+  const isDocxFile = (filename) => {
+    return getFileType(filename) === "docx";
+  };
+
+  // Load document content when the modal opens
+  useEffect(() => {
+    if (isOpen && resumeUrl) {
+      setIsLoading(true);
+
+      // For DOCX files, we'll use a placeholder approach for now
+      // In a real implementation, you would use a library like docx-preview
+      if (isDocxFile(filename)) {
+        // Simulate loading time
+        const timer = setTimeout(() => {
+          setIsLoading(false);
+        }, 1000);
+        return () => clearTimeout(timer);
+      } else {
+        // For PDF files, the iframe will handle loading
+        setIsLoading(false);
+      }
+    }
+  }, [isOpen, resumeUrl, filename]);
 
   const handleDownload = async () => {
     try {
@@ -50,6 +80,10 @@ const ResumeModal = ({ isOpen, onClose, resumeUrl, filename }) => {
     }
   };
 
+  const handleIframeLoad = () => {
+    setIsLoading(false);
+  };
+
   return (
     <AnimatePresence>
       {isOpen && (
@@ -68,7 +102,8 @@ const ResumeModal = ({ isOpen, onClose, resumeUrl, filename }) => {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-4 border-b border-github-border-default dark:border-github-border-default-dark">
-              <h3 className="text-lg font-medium text-github-fg-default dark:text-github-fg-default-dark">
+              <h3 className="text-lg font-medium text-github-fg-default dark:text-github-fg-default-dark flex items-center">
+                <DocumentIcon className="w-5 h-5 mr-2" />
                 {filename}
               </h3>
               <button
@@ -79,12 +114,41 @@ const ResumeModal = ({ isOpen, onClose, resumeUrl, filename }) => {
               </button>
             </div>
             <div className="p-4 overflow-auto max-h-[calc(90vh-120px)]">
-              {isPdfFile(filename) ? (
+              {isLoading ? (
+                <div className="flex flex-col items-center justify-center h-[600px]">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-github-accent-fg"></div>
+                  <p className="mt-4 text-github-fg-muted">
+                    Loading document...
+                  </p>
+                </div>
+              ) : isPdfFile(filename) ? (
                 <iframe
+                  ref={iframeRef}
                   src={resumeUrl}
                   className="w-full h-[600px] border border-github-border-default dark:border-github-border-default-dark rounded"
                   title="Resume Preview"
+                  onLoad={handleIframeLoad}
                 />
+              ) : isDocxFile(filename) ? (
+                <div className="w-full h-[600px] bg-black rounded-lg p-6 flex flex-col items-center justify-center">
+                  <DocumentIcon className="w-16 h-16 text-white mb-4" />
+                  <p className="text-white text-lg font-semibold mb-2">
+                    DOCX Preview Not Supported
+                  </p>
+                  <p className="text-gray-300 mb-4">
+                    Please download the file to view the resume.
+                  </p>
+                  <button
+                    onClick={handleDownload}
+                    disabled={isDownloading}
+                    className="btn-github-primary flex items-center space-x-2"
+                  >
+                    <ArrowDownTrayIcon className="w-5 h-5" />
+                    <span>
+                      {isDownloading ? "Downloading..." : "Download File"}
+                    </span>
+                  </button>
+                </div>
               ) : (
                 <div className="flex flex-col items-center justify-center h-[600px] bg-github-canvas-subtle dark:bg-github-dark-canvas-subtle rounded-lg">
                   <DocumentIcon className="w-16 h-16 text-github-fg-muted mb-4" />
@@ -163,8 +227,6 @@ export default function ShortlistingForm() {
 
   const [isLoading, setIsLoading] = useState(false);
   const [isPreview, setIsPreview] = useState(true);
-  const [inputMethod, setInputMethod] = useState("text");
-  const [file, setFile] = useState(null);
   const [previewResults, setPreviewResults] = useState(null);
   const [previewError, setPreviewError] = useState(null);
   const [resumeModal, setResumeModal] = useState({
@@ -172,6 +234,12 @@ export default function ShortlistingForm() {
     url: "",
     filename: "",
   });
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processProgress, setProcessProgress] = useState(0);
+  const [historyModalOpen, setHistoryModalOpen] = useState(false);
+  const [shortlistingHistory, setShortlistingHistory] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState(null);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -287,49 +355,196 @@ export default function ShortlistingForm() {
     }
   };
 
+  // Simple skills chart component
+  const SkillsMatchChart = ({ skills, matchScore }) => {
+    const score = Math.round(matchScore * 100);
+    return (
+      <div className="mt-4">
+        <h5 className="font-medium text-github-fg-default mb-2">
+          Skills Match
+        </h5>
+        <div className="w-full bg-github-canvas-subtle rounded-full h-4">
+          <div
+            className={`h-4 rounded-full ${
+              score >= 80
+                ? "bg-github-success-emphasis"
+                : score >= 60
+                ? "bg-github-accent-emphasis"
+                : "bg-github-danger-emphasis"
+            }`}
+            style={{ width: `${score}%` }}
+          ></div>
+        </div>
+        <div className="flex justify-between text-xs mt-1">
+          <span>0%</span>
+          <span className="font-medium">{score}%</span>
+          <span>100%</span>
+        </div>
+      </div>
+    );
+  };
+
+  // Enhanced candidate card component
+  const CandidateCard = ({ candidate }) => {
+    const score = Math.round(candidate.combined_score * 100);
+    return (
+      <div className="github-card p-6 border-t-4 border-github-accent-emphasis">
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="flex items-center">
+              <h4 className="text-xl font-semibold">
+                {candidate.candidate_name}
+              </h4>
+              <span
+                className={`ml-3 px-3 py-1 rounded-full text-sm font-medium ${
+                  candidate.predicted_status === "shortlisted"
+                    ? "bg-github-success-subtle text-github-success-fg"
+                    : "bg-github-danger-subtle text-github-danger-fg"
+                }`}
+              >
+                {candidate.predicted_status === "shortlisted"
+                  ? "Recommended"
+                  : "Not Recommended"}
+              </span>
+            </div>
+            <p className="text-sm text-github-fg-muted mt-1">
+              ID: {candidate.candidate_id}
+            </p>
+          </div>
+          <div
+            className={`flex items-center px-4 py-2 rounded-full ${getScoreColor(
+              score
+            )}`}
+          >
+            {getScoreIcon(score)}
+            <span className="ml-2 text-lg font-bold">{score}</span>
+          </div>
+        </div>
+
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div>
+            <h5 className="flex items-center text-github-success-fg font-medium mb-3">
+              <CheckCircleIcon className="w-5 h-5 mr-2" />
+              Strengths
+            </h5>
+            <ul className="space-y-2">
+              {candidate.strengths && candidate.strengths.length > 0 ? (
+                candidate.strengths.map((strength, idx) => (
+                  <li key={idx} className="flex items-start">
+                    <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-github-success-subtle text-github-success-fg mr-2">
+                      <CheckCircleIcon className="h-4 w-4" />
+                    </span>
+                    <span className="text-sm">{strength}</span>
+                  </li>
+                ))
+              ) : (
+                <li className="text-sm text-github-fg-muted">
+                  No strengths identified.
+                </li>
+              )}
+            </ul>
+            <SkillsMatchChart
+              skills={candidate.strengths || []}
+              matchScore={candidate.combined_score}
+            />
+          </div>
+          <div>
+            <h5 className="flex items-center text-github-danger-fg font-medium mb-3">
+              <ExclamationCircleIcon className="w-5 h-5 mr-2" />
+              Areas for Consideration
+            </h5>
+            <ul className="space-y-2">
+              {candidate.weaknesses && candidate.weaknesses.length > 0 ? (
+                candidate.weaknesses.map((weakness, idx) => (
+                  <li key={idx} className="flex items-start">
+                    <span className="inline-flex items-center justify-center h-6 w-6 rounded-full bg-github-danger-subtle text-github-danger-fg mr-2">
+                      <ExclamationCircleIcon className="h-4 w-4" />
+                    </span>
+                    <span className="text-sm">{weakness}</span>
+                  </li>
+                ))
+              ) : (
+                <li className="text-sm text-github-fg-muted">
+                  No weaknesses identified.
+                </li>
+              )}
+            </ul>
+            <div className="mt-4">
+              <h5 className="flex items-center font-medium mb-3">
+                <LightBulbIcon className="w-5 h-5 mr-2 text-github-attention-fg" />
+                Summary
+              </h5>
+              <div className="bg-black rounded-md p-4 text-sm text-white">
+                {candidate.reasoning || "No summary available."}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* View Resume Button */}
+        <div className="mt-6 flex justify-end">
+          <button
+            onClick={() => handleViewResume(candidate.candidate_id)}
+            className="btn-github-primary flex items-center space-x-2"
+          >
+            <EyeIcon className="w-4 h-4" />
+            <span>View Resume</span>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
     setPreviewError(null);
+    setIsProcessing(true);
+    setProcessProgress(0);
 
     try {
-      // Convert skill categories to uppercase for backend compatibility
-      const formDataWithUpperCase = {
+      // Fix: Send required_skills and preferred_skills as arrays of strings
+      const formDataForBackend = {
         ...formData,
-        required_skills: formData.required_skills.map((skill) => ({
-          skill_name: skill,
-          skill_category: "TECHNICAL",
-          proficiency_level: "INTERMEDIATE",
-        })),
-        preferred_skills: formData.preferred_skills.map((skill) => ({
-          skill_name: skill,
-          skill_category: "TECHNICAL",
-          proficiency_level: "INTERMEDIATE",
-        })),
+        required_skills: formData.required_skills,
+        preferred_skills: formData.preferred_skills,
       };
 
+      // Simulate progress for better UX
+      const progressInterval = setInterval(() => {
+        setProcessProgress((prev) => {
+          const next = prev + (100 - prev) * 0.1;
+          return Math.min(next, 95); // Never reach 100% until actually done
+        });
+      }, 500);
+
       let response;
-      if (inputMethod === "text") {
-        response = isPreview
-          ? await resumeApi.shortlistPreview(formDataWithUpperCase)
-          : await resumeApi.shortlistByDescription(formDataWithUpperCase);
+      if (isPreview) {
+        response = await resumeApi.shortlistPreview(formDataForBackend);
       } else {
-        response = isPreview
-          ? await resumeApi.shortlistPreviewByFile(file, formDataWithUpperCase)
-          : await resumeApi.shortlistByFile(file, formDataWithUpperCase);
+        response = await resumeApi.shortlistByDescription(formDataForBackend);
       }
 
-      setPreviewResults(response);
-      toast.success(
-        isPreview
-          ? "Preview generated successfully"
-          : "Shortlisting completed successfully"
-      );
+      clearInterval(progressInterval);
+      setProcessProgress(100);
+
+      // Delay setting results for smooth progress bar animation
+      setTimeout(() => {
+        setPreviewResults(response);
+        setIsProcessing(false);
+        toast.success(
+          isPreview
+            ? "Preview generated successfully"
+            : "Shortlisting completed successfully"
+        );
+      }, 500);
     } catch (error) {
       setPreviewError(
         error.message || "No candidates are currently pending for review"
       );
       toast.error(error.message || "Failed to process shortlisting request");
+      setIsProcessing(false);
+      setProcessProgress(0);
     } finally {
       setIsLoading(false);
     }
@@ -359,39 +574,11 @@ export default function ShortlistingForm() {
         Shortlisting Criteria
       </h2>
 
-      {/* Input Method Toggle */}
-      <div className="flex space-x-4 border-b border-github-border-default dark:border-github-border-default-dark mb-6">
-        <button
-          onClick={() => setInputMethod("text")}
-          className={`pb-2 px-1 border-b-2 font-medium text-sm ${
-            inputMethod === "text"
-              ? "border-github-accent-fg text-github-accent-fg"
-              : "border-transparent text-github-fg-muted hover:text-github-fg-default"
-          }`}
-        >
-          Write Job Description
-        </button>
-        <button
-          onClick={() => setInputMethod("file")}
-          className={`pb-2 px-1 border-b-2 font-medium text-sm ${
-            inputMethod === "file"
-              ? "border-github-accent-fg text-github-accent-fg"
-              : "border-transparent text-github-fg-muted hover:text-github-fg-default"
-          }`}
-        >
-          Upload Job Description
-        </button>
-      </div>
-
       <form onSubmit={handleSubmit} className="space-y-6">
-        {inputMethod === "text" ? (
-          <>
         {/* Basic Job Information */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-                <label className="block text-sm font-medium mb-2">
-                  Job Title
-                </label>
+            <label className="block text-sm font-medium mb-2">Job Title</label>
             <input
               type="text"
               name="job_title"
@@ -435,96 +622,88 @@ export default function ShortlistingForm() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium mb-2">
-                  Required Skills
+              Required Skills
             </label>
-                <div className="space-y-2">
-            <input
-              type="text"
-                    value={inputValues.required_skills}
-                    onChange={(e) =>
-                      handleArrayInputChange(e, "required_skills")
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter")
-                        handleArrayInputChange(e, "required_skills");
-                    }}
-                    className={`github-input w-full ${
-                      validationErrors.required_skills ? "border-red-500" : ""
-                    }`}
-                    placeholder="Type and press Enter or comma to add skills"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    {formData.required_skills.map((skill, index) => (
-                      <span
-                        key={index}
-                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-accent-subtle text-github-accent-fg"
-                      >
-                        {skill}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            removeArrayItem("required_skills", index)
-                          }
-                          className="ml-1 hover:text-github-danger-fg"
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  {validationErrors.required_skills && (
-                    <p className="text-red-500 text-sm">
-                      {validationErrors.required_skills}
-                    </p>
-                  )}
-                </div>
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={inputValues.required_skills}
+                onChange={(e) => handleArrayInputChange(e, "required_skills")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter")
+                    handleArrayInputChange(e, "required_skills");
+                }}
+                className={`github-input w-full ${
+                  validationErrors.required_skills ? "border-red-500" : ""
+                }`}
+                placeholder="Type and press Enter or comma to add skills"
+              />
+              <div className="flex flex-wrap gap-2">
+                {formData.required_skills.map((skill, index) => (
+                  <span
+                    key={index}
+                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-accent-subtle text-github-accent-fg"
+                  >
+                    {skill}
+                    <button
+                      type="button"
+                      onClick={() => removeArrayItem("required_skills", index)}
+                      className="ml-1 hover:text-github-danger-fg"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              {validationErrors.required_skills && (
+                <p className="text-red-500 text-sm">
+                  {validationErrors.required_skills}
+                </p>
+              )}
+            </div>
           </div>
 
           <div>
             <label className="block text-sm font-medium mb-2">
-                  Preferred Skills
+              Preferred Skills
             </label>
-                <div className="space-y-2">
-            <input
-              type="text"
-                    value={inputValues.preferred_skills}
-                    onChange={(e) =>
-                      handleArrayInputChange(e, "preferred_skills")
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter")
-                        handleArrayInputChange(e, "preferred_skills");
-                    }}
-                    className={`github-input w-full ${
-                      validationErrors.preferred_skills ? "border-red-500" : ""
-                    }`}
-                    placeholder="Type and press Enter or comma to add skills"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    {formData.preferred_skills.map((skill, index) => (
-                      <span
-                        key={index}
-                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-accent-subtle text-github-accent-fg"
-                      >
-                        {skill}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            removeArrayItem("preferred_skills", index)
-                          }
-                          className="ml-1 hover:text-github-danger-fg"
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  {validationErrors.preferred_skills && (
-                    <p className="text-red-500 text-sm">
-                      {validationErrors.preferred_skills}
-                    </p>
-                  )}
-                </div>
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={inputValues.preferred_skills}
+                onChange={(e) => handleArrayInputChange(e, "preferred_skills")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter")
+                    handleArrayInputChange(e, "preferred_skills");
+                }}
+                className={`github-input w-full ${
+                  validationErrors.preferred_skills ? "border-red-500" : ""
+                }`}
+                placeholder="Type and press Enter or comma to add skills"
+              />
+              <div className="flex flex-wrap gap-2">
+                {formData.preferred_skills.map((skill, index) => (
+                  <span
+                    key={index}
+                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-accent-subtle text-github-accent-fg"
+                  >
+                    {skill}
+                    <button
+                      type="button"
+                      onClick={() => removeArrayItem("preferred_skills", index)}
+                      className="ml-1 hover:text-github-danger-fg"
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+              {validationErrors.preferred_skills && (
+                <p className="text-red-500 text-sm">
+                  {validationErrors.preferred_skills}
+                </p>
+              )}
+            </div>
           </div>
         </div>
 
@@ -577,100 +756,51 @@ export default function ShortlistingForm() {
 
           <div>
             <label className="block text-sm font-medium mb-2">
-                  Preferred Locations
+              Preferred Locations
             </label>
-                <div className="space-y-2">
-            <input
-              type="text"
-                    value={inputValues.preferred_locations}
-                    onChange={(e) =>
-                      handleArrayInputChange(e, "preferred_locations")
-                    }
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter")
-                        handleArrayInputChange(e, "preferred_locations");
-                    }}
-                    className={`github-input w-full ${
-                      validationErrors.preferred_locations
-                        ? "border-red-500"
-                        : ""
-                    }`}
-                    placeholder="Type and press Enter or comma to add locations"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    {formData.preferred_locations.map((location, index) => (
-                      <span
-                        key={index}
-                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-accent-subtle text-github-accent-fg"
-                      >
-                        {location}
-                        <button
-                          type="button"
-                          onClick={() =>
-                            removeArrayItem("preferred_locations", index)
-                          }
-                          className="ml-1 hover:text-github-danger-fg"
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  {validationErrors.preferred_locations && (
-                    <p className="text-red-500 text-sm">
-                      {validationErrors.preferred_locations}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </div>
-          </>
-        ) : (
-          <div
-            {...getRootProps()}
-            className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors
-              ${
-                isDragActive
-                  ? "border-github-accent-fg bg-github-canvas-subtle"
-                  : "border-github-border-default hover:border-github-accent-fg"
-              }`}
-          >
-            <input {...getInputProps()} />
-            <div className="flex flex-col items-center space-y-4">
-              {file ? (
-                <>
-                  <DocumentIcon className="w-12 h-12 text-github-accent-fg" />
-                  <div className="flex items-center space-x-2">
-                    <span className="text-sm text-github-fg-default">
-                      {file.name}
-                    </span>
+            <div className="space-y-2">
+              <input
+                type="text"
+                value={inputValues.preferred_locations}
+                onChange={(e) =>
+                  handleArrayInputChange(e, "preferred_locations")
+                }
+                onKeyDown={(e) => {
+                  if (e.key === "Enter")
+                    handleArrayInputChange(e, "preferred_locations");
+                }}
+                className={`github-input w-full ${
+                  validationErrors.preferred_locations ? "border-red-500" : ""
+                }`}
+                placeholder="Type and press Enter or comma to add locations"
+              />
+              <div className="flex flex-wrap gap-2">
+                {formData.preferred_locations.map((location, index) => (
+                  <span
+                    key={index}
+                    className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-accent-subtle text-github-accent-fg"
+                  >
+                    {location}
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setFile(null);
-                      }}
-                      className="p-1 hover:bg-github-canvas-subtle rounded-full"
+                      type="button"
+                      onClick={() =>
+                        removeArrayItem("preferred_locations", index)
+                      }
+                      className="ml-1 hover:text-github-danger-fg"
                     >
-                      <XMarkIcon className="w-5 h-5 text-github-fg-muted" />
+                      ×
                     </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <FolderIcon className="w-12 h-12 text-github-fg-muted" />
-                  <p className="text-github-fg-default">
-                    {isDragActive
-                      ? "Drop your job description here"
-                      : "Drag and drop job description, or click to browse"}
-                  </p>
-                  <p className="text-sm text-github-fg-muted">
-                    Supports PDF, DOCX, and TXT files up to 10MB
-                  </p>
-                </>
+                  </span>
+                ))}
+              </div>
+              {validationErrors.preferred_locations && (
+                <p className="text-red-500 text-sm">
+                  {validationErrors.preferred_locations}
+                </p>
               )}
             </div>
           </div>
-        )}
+        </div>
 
         {/* Advanced Settings */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -727,6 +857,7 @@ export default function ShortlistingForm() {
             type="button"
             onClick={() => setIsPreview(!isPreview)}
             className="btn-github"
+            disabled={isLoading}
           >
             {isPreview ? "Switch to Final" : "Switch to Preview"}
           </button>
@@ -763,6 +894,26 @@ export default function ShortlistingForm() {
         </div>
       </form>
 
+      {/* Processing Progress */}
+      {isProcessing && (
+        <div className="mt-6">
+          <div className="flex justify-between mb-2">
+            <span className="text-sm font-medium text-github-fg-default">
+              Processing candidates
+            </span>
+            <span className="text-sm font-medium text-github-fg-default">
+              {Math.round(processProgress)}%
+            </span>
+          </div>
+          <div className="w-full bg-github-canvas-subtle rounded-full h-2.5">
+            <div
+              className="bg-github-accent-emphasis h-2.5 rounded-full"
+              style={{ width: `${processProgress}%` }}
+            ></div>
+          </div>
+        </div>
+      )}
+
       {/* Preview Results or Error */}
       {previewError ? (
         <div className="mt-8 text-center py-8 bg-github-danger-subtle rounded-lg">
@@ -777,132 +928,48 @@ export default function ShortlistingForm() {
       ) : (
         previewResults && (
           <div className="mt-8 space-y-6">
-            <h3 className="text-lg font-semibold">Preview Results</h3>
+            <h3 className="text-xl font-semibold">Shortlisting Results</h3>
 
             {previewResults.preview_results &&
             previewResults.preview_results.length > 0 ? (
               <>
-                <div className="mb-4 p-4 bg-github-canvas-subtle rounded-lg">
-                  <div className="grid grid-cols-3 gap-4 text-center">
-                    <div>
-                      <div className="text-2xl font-bold text-github-fg-default">
+                <div className="mb-6 p-6 bg-github-canvas-subtle rounded-lg shadow-sm">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
+                    <div className="bg-github-canvas-default rounded-lg p-4 shadow-sm">
+                      <div className="text-3xl font-bold text-github-fg-default">
                         {previewResults.total_candidates}
                       </div>
                       <div className="text-sm text-github-fg-muted">
                         Total Candidates
                       </div>
                     </div>
-                    <div>
-                      <div className="text-2xl font-bold text-github-success-fg">
+                    <div className="bg-github-canvas-default rounded-lg p-4 shadow-sm">
+                      <div className="text-3xl font-bold text-github-success-fg">
                         {previewResults.predicted_shortlisted}
                       </div>
                       <div className="text-sm text-github-fg-muted">
-                        Predicted Shortlist
+                        Recommended
                       </div>
                     </div>
-                    <div>
-                      <div className="text-2xl font-bold text-github-danger-fg">
+                    <div className="bg-github-canvas-default rounded-lg p-4 shadow-sm">
+                      <div className="text-3xl font-bold text-github-danger-fg">
                         {previewResults.predicted_rejected}
                       </div>
                       <div className="text-sm text-github-fg-muted">
-                        Predicted Reject
+                        Not Recommended
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {previewResults.preview_results.map((candidate, index) => (
-                  <div
-                    key={candidate.candidate_id || index}
-                    className="github-card p-4"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <h4 className="text-lg font-medium">
-                          {candidate.candidate_name}
-                        </h4>
-                        <p className="text-sm text-github-fg-muted">
-                          ID: {candidate.candidate_id}
-                        </p>
-                      </div>
-                      <div
-                        className={`flex items-center space-x-2 px-3 py-1 rounded-full ${getScoreColor(
-                          candidate.combined_score * 100
-                        )}`}
-                      >
-                        {getScoreIcon(candidate.combined_score * 100)}
-                        <span className="font-medium">
-                          {Math.round(candidate.combined_score * 100)}/100
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-4">
-                      <p className="text-sm">{candidate.reasoning}</p>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-2 gap-4">
-                      <div>
-                        <h5 className="font-medium text-github-success-fg mb-2">
-                          Strengths
-                        </h5>
-                        <ul className="text-sm space-y-1">
-                          {candidate.strengths &&
-                            candidate.strengths.map((strength, idx) => (
-                              <li key={idx}>• {strength}</li>
-                            ))}
-                        </ul>
-                      </div>
-                      <div>
-                        <h5 className="font-medium text-github-danger-fg mb-2">
-                          Areas for Consideration
-                        </h5>
-                        <ul className="text-sm space-y-1">
-                          {candidate.weaknesses &&
-                            candidate.weaknesses.map((weakness, idx) => (
-                              <li key={idx}>• {weakness}</li>
-                            ))}
-                        </ul>
-                      </div>
-                    </div>
-
-                    {/* Score Breakdown */}
-                    {candidate.score_breakdown && (
-                      <div className="mt-4 p-3 bg-github-canvas-subtle rounded-lg">
-                        <h5 className="font-medium text-github-fg-default mb-2">
-                          Score Breakdown
-                        </h5>
-                        <div className="grid grid-cols-2 gap-4 text-sm">
-                          {Object.entries(candidate.score_breakdown).map(
-                            ([key, value]) => (
-                              <div key={key} className="flex justify-between">
-                                <span className="text-github-fg-muted capitalize">
-                                  {key.replace(/_/g, " ")}
-                                </span>
-                                <span className="text-github-fg-default">
-                                  {typeof value === "number"
-                                    ? `${Math.round(value * 100)}%`
-                                    : value}
-                                </span>
-                              </div>
-                            )
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* View Resume Button */}
-                    <div className="mt-4">
-                      <button
-                        onClick={() => handleViewResume(candidate.candidate_id)}
-                        className="btn-github text-sm"
-                      >
-                        <EyeIcon className="w-4 h-4 mr-1 inline" />
-                        View Resume
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                <div className="space-y-6">
+                  {previewResults.preview_results.map((candidate, index) => (
+                    <CandidateCard
+                      key={candidate.candidate_id || index}
+                      candidate={candidate}
+                    />
+                  ))}
+                </div>
               </>
             ) : (
               <div className="text-center py-8 bg-github-canvas-subtle rounded-lg">
@@ -913,20 +980,6 @@ export default function ShortlistingForm() {
                 <p className="text-github-fg-muted">
                   There are currently no candidates pending for review.
                 </p>
-              </div>
-            )}
-
-            {/* Scoring Explanation */}
-            {previewResults.criteria_summary && (
-              <div className="github-card bg-github-canvas-subtle p-4">
-                <h4 className="font-medium text-github-fg-default mb-2">
-                  Applied Criteria
-                </h4>
-                <div className="text-sm text-github-fg-muted space-y-2">
-                  <pre className="whitespace-pre-wrap">
-                    {JSON.stringify(previewResults.criteria_summary, null, 2)}
-                  </pre>
-                </div>
               </div>
             )}
           </div>

@@ -1,6 +1,7 @@
 import { Geist, Geist_Mono } from "next/font/google";
-import Layout from "@/components/Layout";
-import Providers from "@/components/Providers";
+import Layout from "../components/Layout";
+import Providers from "../components/Providers";
+import AuthProvider from "../src/lib/auth-context";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,6 +14,7 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// You can optionally move this metadata to a comment if not needed directly in JSX
 export const metadata = {
   title: "Resume Processing System",
   description:
@@ -25,7 +27,11 @@ export default function RootLayout({ children }) {
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased h-full bg-github-canvas-default dark:bg-github-dark-canvas-default text-github-fg-default dark:text-github-dark-fg-default`}
       >
-        <Providers>{children}</Providers>
+        <AuthProvider>
+          <Providers>
+            <Layout>{children}</Layout>
+          </Providers>
+        </AuthProvider>
       </body>
     </html>
   );

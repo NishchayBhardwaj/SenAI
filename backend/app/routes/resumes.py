@@ -1,11 +1,12 @@
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Form
 from sqlalchemy.orm import Session
 import logging
 import io
+import re
 
-from models.database import get_db, Candidate, Education, Skill, init_db
+from models.database import get_db, Candidate, Education, Skill, WorkExperience, init_db
 from services.storage import FileStorage
-from services.resume_processor import process_file_content, analyze_resume_content
+from services.resume_processor import process_file_content, analyze_resume_content, groq_client
 from utils.error_messages import APIErrorMessages
 from utils.api_paths import RESUME_PATHS, RESUMES_BASE
 from services.storage import StorageError
@@ -128,11 +129,33 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
             logger.info("File content processed successfully")
 
             # Analyze content with Groq
-            extracted_data = analyze_resume_content(content)
+            try:
+                extracted_data = analyze_resume_content(content)
+            except Exception as e:
+                logger.error(f"Resume parsing error: {str(e)}")
+                raise HTTPException(status_code=400, detail="Failed to analyze resume content. Please upload a valid resume.")
             if not extracted_data:
                 logger.error("Failed to analyze resume content")
                 raise HTTPException(status_code=400, detail="Failed to analyze resume content")
             logger.info("Resume content analyzed successfully")
+
+            # Post-LLM resume validation: ensure at least one key field is present
+            fields_to_check = [
+                extracted_data.get('Full Name', '').strip().lower(),
+                extracted_data.get('Email Address', '').strip().lower(),
+                extracted_data.get('Skills', []),
+                extracted_data.get('Education', []),
+                extracted_data.get('Work Experience', [])
+            ]
+            if (
+                (not fields_to_check[0] or fields_to_check[0] == 'not found') and
+                (not fields_to_check[1] or fields_to_check[1] == 'not found') and
+                (not fields_to_check[2] or (isinstance(fields_to_check[2], list) and (len(fields_to_check[2]) == 0 or all((str(s).strip().lower() == 'not found') for s in fields_to_check[2])))) and
+                (not fields_to_check[3] or (isinstance(fields_to_check[3], list) and (len(fields_to_check[3]) == 0 or all((str(e).strip().lower() == 'not found') for e in fields_to_check[3])))) and
+                (not fields_to_check[4] or (isinstance(fields_to_check[4], list) and (len(fields_to_check[4]) == 0 or all((str(w).strip().lower() == 'not found') for w in fields_to_check[4]))))
+            ):
+                logger.error(f"Resume validation failed: No key fields found or all fields are 'Not found' in file {file.filename}")
+                raise HTTPException(status_code=400, detail="Invalid file, please upload a valid resume (no key information found).")
 
             # Check for duplicate resume data
             existing_candidate, is_duplicate = check_duplicate_resume_data(db, extracted_data)
@@ -175,9 +198,71 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
                 raise HTTPException(status_code=500, detail=f"Error saving file: {str(e)}")
 
             try:
-                # Categorize skills
-                categorized_skills = categorize_skills(extracted_data.get('Skills', []))
-                
+                # --- Skill Extraction Fix ---
+                # If extracted_data['Skills'] is a single string, split it into a list
+                skills = extracted_data.get('Skills', [])
+                if isinstance(skills, str):
+                    # Split on newlines, commas, or semicolons
+                    skills = [s.strip() for s in re.split(r'[\n,;]', skills) if s.strip()]
+                    extracted_data['Skills'] = skills
+                elif isinstance(skills, list):
+                    # Flatten any list items that are long strings with delimiters
+                    flat_skills = []
+                    for s in skills:
+                        if isinstance(s, str) and ("\n" in s or "," in s or ";" in s):
+                            flat_skills.extend([x.strip() for x in re.split(r'[\n,;]', s) if x.strip()])
+                        else:
+                            flat_skills.append(s)
+                    extracted_data['Skills'] = flat_skills
+
+                # --- LLM Skill Categorization & Proficiency ---
+                def get_skill_category_and_proficiency(skill_name):
+                    """Use Groq LLM to determine skill category and proficiency level, enforcing allowed enums."""
+                    allowed_categories = ["TECHNICAL", "SOFT", "LANGUAGE", "OTHER"]
+                    allowed_proficiencies = ["BEGINNER", "INTERMEDIATE", "ADVANCED", "EXPERT"]
+                    prompt = f"""
+Classify the following skill into one of these categories (respond with only the category): Technical, Soft, Language, Other. Also, estimate the proficiency level (choose only one: Beginner, Intermediate, Advanced, Expert) based on the skill name and typical usage in resumes. Return the result as JSON with keys: skill_category, proficiency_level. Use only these values for each field.
+
+Skill: {skill_name}
+
+Respond in this format:
+{{"skill_category": "Technical", "proficiency_level": "Intermediate"}}
+"""
+                    try:
+                        chat_completion = groq_client.chat.completions.create(
+                            messages=[{"role": "user", "content": prompt}],
+                            model="llama3-70b-8192",
+                            temperature=0.1,
+                            max_tokens=100
+                        )
+                        import json
+                        response = chat_completion.choices[0].message.content
+                        result = json.loads(response)
+                        # Normalize and map to allowed enums
+                        cat = str(result.get("skill_category", "Technical")).strip().upper()
+                        prof = str(result.get("proficiency_level", "Intermediate")).strip().upper()
+                        if cat not in allowed_categories:
+                            logger.warning(f"LLM returned unknown skill_category '{cat}' for skill '{skill_name}', defaulting to TECHNICAL")
+                            cat = "TECHNICAL"
+                        if prof not in allowed_proficiencies:
+                            logger.warning(f"LLM returned unknown proficiency_level '{prof}' for skill '{skill_name}', defaulting to INTERMEDIATE")
+                            prof = "INTERMEDIATE"
+                        return cat, prof
+                    except Exception as e:
+                        logger.error(f"LLM skill categorization error for '{skill_name}': {str(e)}")
+                        return "TECHNICAL", "INTERMEDIATE"
+
+                categorized_skills = []
+                for skill in extracted_data.get('Skills', []):
+                    skill_name = skill if isinstance(skill, str) else str(skill)
+                    skill_category, proficiency_level = get_skill_category_and_proficiency(skill_name)
+                    categorized_skills.append({
+                        "skill_name": skill_name,
+                        "skill_category": skill_category.upper(),
+                        "proficiency_level": proficiency_level.upper()
+                    })
+                # Use these categorized_skills for DB insert
+
                 # Check if candidate already exists (for updates)
                 if existing_candidate:
                     # Update existing candidate
@@ -234,6 +319,50 @@ async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_
                     )
                     db.add(skill_record)
                 logger.info("Added skill records")
+
+                # Add work experiences with parsed start_date and end_date
+                for exp in extracted_data.get('Work Experience', []):
+                    # exp is a string like "Company, Position, Duration"
+                    company = position = duration = start_date = end_date = ""
+                    if isinstance(exp, dict):
+                        company = exp.get('company', '')
+                        position = exp.get('position', '')
+                        duration = exp.get('duration', '')
+                    elif isinstance(exp, str):
+                        parts = [p.strip() for p in exp.split(',')]
+                        if len(parts) == 3:
+                            company, position, duration = parts
+                        elif len(parts) == 2:
+                            company, position = parts
+                        elif len(parts) == 1:
+                            company = parts[0]
+                        # Try to extract duration from the string if not already set
+                        if not duration and (" - " in exp or " to " in exp):
+                            duration = exp
+                    # Parse start_date and end_date from duration
+                    if duration:
+                        # Look for patterns like "Jan 2020 - Mar 2022", "2018 - Present", etc.
+                        match = re.search(r"([A-Za-z]{3,9} \d{4}|\d{4})\s*[-to]+\s*([A-Za-z]{3,9} \d{4}|\d{4}|Present|Current)", duration, re.IGNORECASE)
+                        if match:
+                            start_date = match.group(1)
+                            end_date = match.group(2)
+                        else:
+                            # Try to split on dash or 'to'
+                            if ' - ' in duration:
+                                sd, ed = duration.split(' - ', 1)
+                                start_date, end_date = sd.strip(), ed.strip()
+                            elif ' to ' in duration:
+                                sd, ed = duration.split(' to ', 1)
+                                start_date, end_date = sd.strip(), ed.strip()
+                    work_exp = WorkExperience(
+                        candidate_id=candidate.candidate_id,
+                        company=company,
+                        position=position,
+                        duration=duration,
+                        start_date=start_date,
+                        end_date=end_date
+                    )
+                    db.add(work_exp)
 
                 db.commit()
                 logger.info("Successfully committed all changes to database")
@@ -299,7 +428,7 @@ def categorize_skills(skills):
         
         categorized_skills.append({
             "skill_name": skill,
-            "skill_category": skill_category,
+            "skill_category": skill_category.upper(),
             "proficiency_level": "intermediate" if skill_category == "technical" else "advanced"
         })
     
@@ -331,4 +460,14 @@ async def view_candidate_resume(candidate_id: int, db: Session = Depends(get_db)
         }
     except Exception as e:
         logger.error(f"Error viewing resume for candidate {candidate_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to view resume: {str(e)}") 
+        raise HTTPException(status_code=500, detail=f"Failed to view resume: {str(e)}")
+
+@router.post("/parse-text/")
+async def parse_text(text: str = Form(...)):
+    """Parse raw resume text and return structured data."""
+    try:
+        parsed_data = analyze_resume_content(text)
+        return {"parsed_data": parsed_data}
+    except Exception as e:
+        logger.error(f"Error parsing text: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to parse text: {str(e)}") 

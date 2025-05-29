@@ -246,7 +246,7 @@ class BatchProcessor:
             
             categorized_skills.append({
                 "skill_name": skill,
-                "skill_category": skill_category,
+                "skill_category": skill_category.upper(),
                 "proficiency_level": "intermediate" if skill_category == "technical" else "advanced"
             })
         

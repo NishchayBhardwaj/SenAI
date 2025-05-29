@@ -2,7 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { resumeApi } from "@/src/lib/api";
+import { resumeApi } from "../src/lib/api";
 import {
   UserGroupIcon,
   CheckCircleIcon,

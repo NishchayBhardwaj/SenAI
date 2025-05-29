@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from sqlalchemy import and_, or_
 import logging
 from models.database import get_db, Candidate, shortlist_candidate as db_shortlist_candidate
 from utils.error_messages import APIErrorMessages
@@ -16,10 +17,70 @@ router = APIRouter(prefix=CANDIDATES_BASE, tags=["candidates"])
 error_messages = APIErrorMessages()
 
 @router.get("/")
-async def get_candidates(skip: int = 0, limit: int = 10, db: Session = Depends(get_db)):
-    """Get all candidates with pagination"""
-    candidates = db.query(Candidate).offset(skip).limit(limit).all()
-    return candidates
+async def get_candidates(
+    skip: int = 0,
+    limit: int = 10,
+    status: str = None,
+    min_experience: int = None,
+    max_experience: int = None,
+    skills: str = None,  # comma-separated
+    location: str = None,
+    company: str = None,
+    position: str = None,
+    education: str = None,
+    db: Session = Depends(get_db),
+):
+    """Get all candidates with advanced filtering and pagination"""
+    query = db.query(Candidate)
+
+    if status:
+        query = query.filter(Candidate.status == status)
+    if min_experience is not None:
+        query = query.filter(Candidate.years_experience >= min_experience)
+    if max_experience is not None:
+        query = query.filter(Candidate.years_experience <= max_experience)
+    if location:
+        query = query.filter(Candidate.location.ilike(f"%{location}%"))
+    if company:
+        query = query.join(Candidate.work_experiences).filter(
+            Candidate.work_experiences.any(company=company)
+        )
+    if position:
+        query = query.join(Candidate.work_experiences).filter(
+            Candidate.work_experiences.any(position=position)
+        )
+    if education:
+        query = query.join(Candidate.education).filter(
+            Candidate.education.any(degree=education)
+        )
+    if skills:
+        skill_list = [s.strip() for s in skills.split(",") if s.strip()]
+        for skill in skill_list:
+            query = query.join(Candidate.skills).filter(
+                Candidate.skills.any(skill_name=skill)
+            )
+    candidates = query.offset(skip).limit(limit).all()
+    result = []
+    for candidate in candidates:
+        result.append({
+            "candidate_id": candidate.candidate_id,
+            "full_name": candidate.full_name,
+            "email": candidate.email,
+            "phone": candidate.phone,
+            "location": candidate.location,
+            "years_experience": candidate.years_experience,
+            "status": candidate.status.value if hasattr(candidate.status, 'value') else candidate.status,
+            "skills": [
+                {
+                    "skill_name": skill.skill_name,
+                    "skill_category": skill.skill_category.value if hasattr(skill.skill_category, 'value') else skill.skill_category,
+                    "proficiency_level": skill.proficiency_level.value if hasattr(skill.proficiency_level, 'value') else skill.proficiency_level,
+                }
+                for skill in candidate.skills
+            ],
+            # Add other fields as needed
+        })
+    return result
 
 @router.get("/{candidate_id}")
 async def get_candidate(candidate_id: int, db: Session = Depends(get_db)):
@@ -27,7 +88,24 @@ async def get_candidate(candidate_id: int, db: Session = Depends(get_db)):
     candidate = db.query(Candidate).filter(Candidate.candidate_id == candidate_id).first()
     if not candidate:
         raise HTTPException(status_code=404, detail=error_messages.get_error_message(404))
-    return candidate
+    return {
+        "candidate_id": candidate.candidate_id,
+        "full_name": candidate.full_name,
+        "email": candidate.email,
+        "phone": candidate.phone,
+        "location": candidate.location,
+        "years_experience": candidate.years_experience,
+        "status": candidate.status.value if hasattr(candidate.status, 'value') else candidate.status,
+        "skills": [
+            {
+                "skill_name": skill.skill_name,
+                "skill_category": skill.skill_category.value if hasattr(skill.skill_category, 'value') else skill.skill_category,
+                "proficiency_level": skill.proficiency_level.value if hasattr(skill.proficiency_level, 'value') else skill.proficiency_level,
+            }
+            for skill in candidate.skills
+        ],
+        # Add other fields as needed
+    }
 
 @router.put("/{candidate_id}/status")
 async def update_candidate_status(candidate_id: int, status: str, db: Session = Depends(get_db)):
