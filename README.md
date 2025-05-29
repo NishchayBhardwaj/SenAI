@@ -33,6 +33,54 @@ This system automates the resume processing workflow, from file upload to candid
   - Real-time processing feedback
   - Clean and intuitive user experience
 
+## Project Components
+
+The application consists of three main components:
+
+1. **Frontend** - A Next.js application that provides the user interface
+2. **Backend** - A FastAPI-based service that processes resumes and manages candidates
+3. **Auth Backend** - An Express.js service that handles authentication with Google OAuth
+
+## Quick Start
+
+### Using the Startup Script
+
+The easiest way to run the entire application is to use the provided startup script:
+
+#### On Linux/macOS:
+
+```bash
+# Make the script executable
+chmod +x start-app.sh
+
+# Run the application
+./start-app.sh
+```
+
+#### On Windows:
+
+```cmd
+# Run the application
+start-app.bat
+```
+
+The script will:
+
+1. Check for required dependencies
+2. Start all three components in the background
+3. Provide URLs to access each service
+4. Allow you to stop all services with Ctrl+C
+
+### Accessing the Application
+
+Once started, you can access the application at:
+
+- Frontend: http://localhost:3000
+- Backend API: http://localhost:8000
+- Auth Backend: http://localhost:4000
+
+**Important**: After first loading the application, you may need to refresh the page to ensure all services are properly connected.
+
 ## Technical Architecture
 
 ### Backend Components
@@ -58,7 +106,7 @@ This system automates the resume processing workflow, from file upload to candid
 
 ### Frontend Components
 
-- Streamlit-based web interface
+- Next.js-based web interface
 - Real-time processing status
 - Interactive data visualization
 - Responsive design
@@ -68,135 +116,58 @@ This system automates the resume processing workflow, from file upload to candid
 1. **Python Dependencies**
 
    ```bash
+   cd backend
    pip install -r requirements.txt
    ```
 
-2. **System Dependencies**
+2. **Node.js Dependencies**
+
+   ```bash
+   # For the frontend
+   cd frontend
+   npm install
+
+   # For the auth backend
+   cd auth-backend
+   npm install
+   ```
+
+3. **System Dependencies**
 
    - Tesseract OCR
    - Poppler (for PDF processing)
 
-3. **Environment Setup**
+4. **Environment Setup**
    - Create `.env` file with required variables:
      ```
      GROQ_API_KEY=your_groq_api_key_here
      DATABASE_URL=your_database_connection_string
+     GOOGLE_CLIENT_ID=your_google_client_id
+     GOOGLE_CLIENT_SECRET=your_google_client_secret
      ```
 
-## Installation
+## Database Setup
 
-1. **Clone the Repository**
+The application uses MySQL for data storage. You can set up the database using the provided `schema.sql` file:
 
-   ```bash
-   git clone [repository-url]
-   cd resume-processing-system
-   ```
-
-2. **Install Python Dependencies**
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. **Install System Dependencies**
-
-   **Windows:**
-
-   - Download and install Tesseract OCR from: https://github.com/UB-Mannheim/tesseract/wiki
-   - Download Poppler from: https://github.com/oschwartz10612/poppler-windows/releases/
-   - Add both to system PATH
-
-   **Linux:**
-
-   ```bash
-   sudo apt-get install tesseract-ocr
-   sudo apt-get install poppler-utils
-   ```
-
-   **Mac:**
-
-   ```bash
-   brew install tesseract
-   brew install poppler
-   ```
-
-4. **Download NLP Models**
-
-   ```bash
-   python -m spacy download en_core_web_sm
-   ```
-
-5. **Initialize NLTK Data**
-   ```python
-   import nltk
-   nltk.download('punkt')
-   nltk.download('stopwords')
-   nltk.download('averaged_perceptron_tagger')
-   ```
-
-## Usage
-
-1. **Start the Application**
-
-   ```bash
-   streamlit run backend/app.py
-   ```
-
-2. **Access the Web Interface**
-
-   - Open your browser and navigate to: http://localhost:8501
-
-3. **Process Resumes**
-   - Upload resume files (PDF, DOCX, TXT)
-   - View extracted information
-   - Apply shortlisting criteria
-   - Review and manage candidates
-
-## Database Schema
-
-### Candidates Table
-
-```sql
-CREATE TABLE candidates (
-    candidate_id INT PRIMARY KEY AUTO_INCREMENT,
-    full_name VARCHAR(255) NOT NULL,
-    email VARCHAR(255) UNIQUE,
-    phone VARCHAR(50),
-    location VARCHAR(255),
-    years_experience INT,
-    resume_file_path VARCHAR(255),
-    status ENUM('pending', 'shortlisted', 'rejected'),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
+```bash
+# Create the database and tables
+mysql -u your_username -p < schema.sql
 ```
 
-### Education Table
+### Database Schema
 
-```sql
-CREATE TABLE education (
-    education_id INT PRIMARY KEY AUTO_INCREMENT,
-    candidate_id INT,
-    degree VARCHAR(255),
-    institution VARCHAR(255),
-    graduation_year INT,
-    gpa DECIMAL(3,2),
-    FOREIGN KEY (candidate_id) REFERENCES candidates(candidate_id)
-);
-```
+The database consists of the following tables:
 
-### Skills Table
+1. **candidates** - Stores basic candidate information
+2. **education** - Stores candidate education history
+3. **skills** - Stores candidate skills with categories and proficiency levels
+4. **work_experiences** - Stores candidate work history
+5. **users** - Stores authenticated user information
+6. **sessions** - Stores authentication sessions
+7. **resume_batches** - Tracks batch processing of resumes
 
-```sql
-CREATE TABLE skills (
-    skill_id INT PRIMARY KEY AUTO_INCREMENT,
-    candidate_id INT,
-    skill_name VARCHAR(255),
-    skill_category ENUM('technical', 'soft', 'language', 'other'),
-    proficiency_level ENUM('beginner', 'intermediate', 'advanced', 'expert'),
-    FOREIGN KEY (candidate_id) REFERENCES candidates(candidate_id)
-);
-```
+For the full schema details, please refer to the `schema.sql` file in the root directory.
 
 ## API Endpoints
 
@@ -249,7 +220,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 - Groq for LLM capabilities
 - Tesseract OCR team
-- Streamlit team
+- Nextjs Team
 - All open-source contributors
 
 ## Support
