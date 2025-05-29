@@ -20,45 +20,248 @@ import {
 } from "@heroicons/react/24/outline";
 import { resumeApi } from "../src/lib/api";
 
+// Document Viewer Component
+const DocumentViewer = ({
+  url,
+  fileType,
+  filename,
+  candidateId,
+  onRefreshUrl,
+}) => {
+  const [currentViewer, setCurrentViewer] = useState("office");
+  const [viewerError, setViewerError] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [autoRefreshAttempted, setAutoRefreshAttempted] = useState(false);
+
+  const type = fileType?.toLowerCase();
+
+  const getViewerUrl = (viewer) => {
+    switch (viewer) {
+      case "office":
+        return `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(
+          url
+        )}`;
+      case "google":
+        return `https://docs.google.com/viewer?url=${encodeURIComponent(
+          url
+        )}&embedded=true`;
+      case "direct":
+        return url;
+      default:
+        return url;
+    }
+  };
+
+  const handleViewerLoad = () => {
+    setIsLoading(false);
+    setViewerError(false);
+  };
+
+  const handleViewerError = async () => {
+    setIsLoading(false);
+    setViewerError(true);
+
+    // For office documents, try to auto-refresh the URL if it fails the first time
+    if (
+      (type === "doc" || type === "docx") &&
+      !autoRefreshAttempted &&
+      candidateId &&
+      onRefreshUrl
+    ) {
+      console.log("Document failed to load. Automatically refreshing URL...");
+      setAutoRefreshAttempted(true);
+      try {
+        await onRefreshUrl();
+        // After URL refresh, we'll try the Office viewer again
+        setCurrentViewer("office");
+        setIsLoading(true);
+        setViewerError(false);
+        return;
+      } catch (error) {
+        console.error("Auto-refresh failed:", error);
+      }
+    }
+
+    // If auto-refresh was attempted or failed, follow the regular fallback logic
+    if (currentViewer === "office") {
+      console.log("Office viewer failed, trying Google Docs viewer...");
+      setCurrentViewer("google");
+      setIsLoading(true);
+      setViewerError(false);
+    } else if (currentViewer === "google") {
+      console.log("Google viewer failed, falling back to direct link...");
+      setCurrentViewer("direct");
+      setIsLoading(true);
+      setViewerError(false);
+    }
+  };
+
+  const renderViewer = () => {
+    if (type === "pdf" || type === "txt") {
+      // Direct viewing for PDF and TXT
+      return (
+        <iframe
+          src={url}
+          className="absolute inset-0 w-full h-full border-0"
+          title="Document Preview"
+          onLoad={handleViewerLoad}
+          onError={handleViewerError}
+        />
+      );
+    } else if (type === "doc" || type === "docx") {
+      // Office documents with smart viewer selection
+      return (
+        <iframe
+          key={`${currentViewer}-${url}`} // Force re-render when viewer changes
+          src={getViewerUrl(currentViewer)}
+          className="absolute inset-0 w-full h-full border-0"
+          title="Document Preview"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
+          onLoad={handleViewerLoad}
+          onError={handleViewerError}
+        />
+      );
+    } else {
+      // Fallback for other file types
+      return (
+        <div className="absolute inset-0 w-full h-full flex items-center justify-center">
+          <div className="text-center p-8">
+            <h3 className="text-lg font-medium text-github-fg-default dark:text-github-dark-fg-default mb-4">
+              Preview not available for this file type
+            </h3>
+            <p className="text-github-fg-muted dark:text-github-dark-fg-muted mb-4">
+              File type: {type || "Unknown"}
+            </p>
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-github-primary"
+            >
+              Download File
+            </a>
+          </div>
+        </div>
+      );
+    }
+  };
+
+  const renderControls = () => {
+    if (type !== "doc" && type !== "docx") return null;
+
+    return (
+      <div className="p-3 bg-github-canvas-subtle dark:bg-github-dark-canvas-subtle border-t border-github-border-default dark:border-github-dark-border-default">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => {
+                setCurrentViewer("office");
+                setIsLoading(true);
+                setViewerError(false);
+              }}
+              className={`px-3 py-1 text-xs rounded border ${
+                currentViewer === "office"
+                  ? "bg-github-accent-emphasis text-github-fg-onEmphasis dark:text-github-fg-onEmphasis border-github-accent-emphasis"
+                  : "bg-github-btn-bg hover:bg-github-btn-hover-bg border-github-border-default dark:border-github-dark-border-default text-github-fg-default dark:text-github-dark-fg-default"
+              }`}
+            >
+              Office Viewer
+            </button>
+            <button
+              onClick={() => {
+                setCurrentViewer("google");
+                setIsLoading(true);
+                setViewerError(false);
+              }}
+              className={`px-3 py-1 text-xs rounded border ${
+                currentViewer === "google"
+                  ? "bg-github-accent-emphasis text-github-fg-onEmphasis dark:text-github-fg-onEmphasis border-github-accent-emphasis"
+                  : "bg-github-btn-bg hover:bg-github-btn-hover-bg border-github-border-default dark:border-github-dark-border-default text-github-fg-default dark:text-github-dark-fg-default"
+              }`}
+            >
+              Google Viewer
+            </button>
+          </div>
+
+          <div className="flex gap-2">
+            {viewerError && (
+              <span className="text-xs text-github-danger-fg dark:text-github-dark-danger-fg">
+                Viewer failed to load
+              </span>
+            )}
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1 text-xs bg-github-success-emphasis hover:bg-github-success-emphasis text-github-fg-onEmphasis dark:text-github-fg-onEmphasis rounded"
+            >
+              Open in New Tab
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div className="relative w-full" style={{ height: "80vh" }}>
+      <div className="absolute inset-0 w-full h-full flex flex-col">
+        <div className="flex-1 relative">
+          {isLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-github-canvas-subtle dark:bg-github-dark-canvas-default bg-opacity-75 z-10">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                className="w-8 h-8 border-2 border-github-accent-emphasis border-t-transparent rounded-full"
+              />
+            </div>
+          )}
+
+          {viewerError && currentViewer === "direct" && (
+            <div className="absolute inset-0 flex items-center justify-center bg-github-canvas-subtle dark:bg-github-dark-canvas-default">
+              <div className="text-center p-8">
+                <h3 className="text-lg font-medium text-github-fg-default dark:text-github-dark-fg-default mb-4">
+                  Unable to preview this document
+                </h3>
+                <p className="text-github-fg-muted dark:text-github-dark-fg-muted mb-4">
+                  {type === "doc" || type === "docx"
+                    ? "Office documents require valid temporary URLs that expire after some time. The URL for this document has likely expired."
+                    : "The document viewer is not compatible with this file or the URL has expired."}
+                </p>
+                <button onClick={onRefreshUrl} className="btn-github-primary">
+                  Refresh Document URL
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!viewerError && renderViewer()}
+        </div>
+
+        {renderControls()}
+      </div>
+    </div>
+  );
+};
+
 // Resume Modal Component
-const ResumeModal = ({ isOpen, onClose, resumeUrl, filename }) => {
+const ResumeModal = ({
+  isOpen,
+  onClose,
+  resumeUrl,
+  filename,
+  onRefreshUrl,
+  candidateId,
+}) => {
   const [isDownloading, setIsDownloading] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [docxContent, setDocxContent] = useState(null);
-  const iframeRef = useRef(null);
 
   const getFileType = (filename) => {
-    const extension = filename.split(".").pop().toLowerCase();
+    const extension = filename?.split(".").pop()?.toLowerCase() || "";
     return extension;
   };
 
-  const isPdfFile = (filename) => {
-    return getFileType(filename) === "pdf";
-  };
-
-  const isDocxFile = (filename) => {
-    return getFileType(filename) === "docx";
-  };
-
-  // Load document content when the modal opens
-  useEffect(() => {
-    if (isOpen && resumeUrl) {
-      setIsLoading(true);
-
-      // For DOCX files, we'll use a placeholder approach for now
-      // In a real implementation, you would use a library like docx-preview
-      if (isDocxFile(filename)) {
-        // Simulate loading time
-        const timer = setTimeout(() => {
-          setIsLoading(false);
-        }, 1000);
-        return () => clearTimeout(timer);
-      } else {
-        // For PDF files, the iframe will handle loading
-        setIsLoading(false);
-      }
-    }
-  }, [isOpen, resumeUrl, filename]);
+  const fileType = getFileType(filename);
 
   const handleDownload = async () => {
     try {
@@ -78,10 +281,6 @@ const ResumeModal = ({ isOpen, onClose, resumeUrl, filename }) => {
     } finally {
       setIsDownloading(false);
     }
-  };
-
-  const handleIframeLoad = () => {
-    setIsLoading(false);
   };
 
   return (
@@ -113,73 +312,36 @@ const ResumeModal = ({ isOpen, onClose, resumeUrl, filename }) => {
                 <XMarkIcon className="w-5 h-5 text-github-fg-muted dark:text-github-fg-muted-dark" />
               </button>
             </div>
-            <div className="p-4 overflow-auto max-h-[calc(90vh-120px)]">
-              {isLoading ? (
-                <div className="flex flex-col items-center justify-center h-[600px]">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-github-accent-fg"></div>
-                  <p className="mt-4 text-github-fg-muted">
-                    Loading document...
-                  </p>
-                </div>
-              ) : isPdfFile(filename) ? (
-                <iframe
-                  ref={iframeRef}
-                  src={resumeUrl}
-                  className="w-full h-[600px] border border-github-border-default dark:border-github-border-default-dark rounded"
-                  title="Resume Preview"
-                  onLoad={handleIframeLoad}
-                />
-              ) : isDocxFile(filename) ? (
-                <div className="w-full h-[600px] bg-black rounded-lg p-6 flex flex-col items-center justify-center">
-                  <DocumentIcon className="w-16 h-16 text-white mb-4" />
-                  <p className="text-white text-lg font-semibold mb-2">
-                    DOCX Preview Not Supported
-                  </p>
-                  <p className="text-gray-300 mb-4">
-                    Please download the file to view the resume.
-                  </p>
-                  <button
-                    onClick={handleDownload}
-                    disabled={isDownloading}
-                    className="btn-github-primary flex items-center space-x-2"
-                  >
-                    <ArrowDownTrayIcon className="w-5 h-5" />
-                    <span>
-                      {isDownloading ? "Downloading..." : "Download File"}
-                    </span>
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-[600px] bg-github-canvas-subtle dark:bg-github-dark-canvas-subtle rounded-lg">
-                  <DocumentIcon className="w-16 h-16 text-github-fg-muted mb-4" />
-                  <p className="text-github-fg-default mb-4">
-                    Preview not available for{" "}
-                    {getFileType(filename).toUpperCase()} files
-                  </p>
-                  <button
-                    onClick={handleDownload}
-                    disabled={isDownloading}
-                    className="btn-github-primary flex items-center space-x-2"
-                  >
-                    <ArrowDownTrayIcon className="w-5 h-5" />
-                    <span>
-                      {isDownloading ? "Downloading..." : "Download File"}
-                    </span>
-                  </button>
-                </div>
-              )}
-            </div>
+
+            <DocumentViewer
+              url={resumeUrl}
+              fileType={fileType}
+              filename={filename}
+              candidateId={candidateId}
+              onRefreshUrl={onRefreshUrl}
+            />
+
             <div className="p-4 border-t border-github-border-default dark:border-github-border-default-dark bg-github-canvas-subtle flex justify-end space-x-3">
-              {isPdfFile(filename) && (
-                <a
-                  href={resumeUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-github-primary"
+              <button
+                onClick={onRefreshUrl}
+                className="btn-github flex items-center space-x-2"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  strokeWidth={1.5}
+                  stroke="currentColor"
+                  className="w-4 h-4"
                 >
-                  Open in New Tab
-                </a>
-              )}
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"
+                  />
+                </svg>
+                <span>Refresh URL</span>
+              </button>
               <button
                 onClick={handleDownload}
                 disabled={isDownloading}
@@ -233,6 +395,7 @@ export default function ShortlistingForm() {
     isOpen: false,
     url: "",
     filename: "",
+    candidateId: "",
   });
   const [isProcessing, setIsProcessing] = useState(false);
   const [processProgress, setProcessProgress] = useState(0);
@@ -348,10 +511,29 @@ export default function ShortlistingForm() {
         isOpen: true,
         url: data.resume_url,
         filename: data.filename,
+        candidateId: candidateId,
       });
     } catch (error) {
       console.error("Error viewing resume:", error);
       toast.error("Failed to load resume");
+    }
+  };
+
+  const handleRefreshResumeUrl = async () => {
+    try {
+      toast.loading("Refreshing document URL...");
+      // Use the dedicated method for refreshing URLs
+      const data = await resumeApi.refreshResumeUrl(resumeModal.candidateId);
+      toast.dismiss();
+      toast.success("Document URL refreshed");
+      setResumeModal({
+        ...resumeModal,
+        url: data.new_url,
+      });
+    } catch (error) {
+      console.error("Error refreshing resume URL:", error);
+      toast.dismiss();
+      toast.error("Failed to refresh document URL");
     }
   };
 
@@ -989,9 +1171,18 @@ export default function ShortlistingForm() {
       {/* Resume Modal */}
       <ResumeModal
         isOpen={resumeModal.isOpen}
-        onClose={() => setResumeModal({ isOpen: false, url: "", filename: "" })}
+        onClose={() =>
+          setResumeModal({
+            isOpen: false,
+            url: "",
+            filename: "",
+            candidateId: "",
+          })
+        }
         resumeUrl={resumeModal.url}
         filename={resumeModal.filename}
+        onRefreshUrl={handleRefreshResumeUrl}
+        candidateId={resumeModal.candidateId}
       />
     </motion.div>
   );

@@ -231,6 +231,36 @@ export const resumeApi = {
   viewResume: async (candidateId) => {
     try {
       const response = await api.get(`/api/resumes/${candidateId}/view`);
+
+      // Get file extension from filename
+      const filename = response.data.filename || `resume_${candidateId}.pdf`;
+      const fileExt = filename.split(".").pop().toLowerCase();
+
+      // Preemptively refresh URL for document types that tend to have issues with external viewers
+      if (["doc", "docx"].includes(fileExt)) {
+        console.log(
+          `Office document detected (${fileExt}). Preemptively refreshing URL...`
+        );
+        try {
+          // Try to refresh the resume URL
+          const refreshResponse = await api.post(
+            `/api/candidates/${candidateId}/refresh-resume-url`
+          );
+          return {
+            resume_url: refreshResponse.data.new_url,
+            filename: refreshResponse.data.filename || filename,
+            candidate_id: candidateId,
+            refreshed: true,
+          };
+        } catch (refreshError) {
+          console.warn(
+            "Preemptive URL refresh failed, using original URL:",
+            refreshError
+          );
+          // If refresh fails, continue with original URL
+        }
+      }
+
       return response.data;
     } catch (error) {
       // If we get a 404 or any other error, try to refresh the URL
