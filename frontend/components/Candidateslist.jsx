@@ -9,9 +9,16 @@ import {
   ChevronUpIcon,
   MagnifyingGlassIcon,
   XMarkIcon,
+  ArrowDownTrayIcon,
+  ChartBarIcon,
+  TableCellsIcon,
 } from "@heroicons/react/24/outline";
+import SkillGraphVisualizer from "./SkillGraphVisualizer";
 
 export default function Candidateslist() {
+  // Tab state for switching between table and graph views
+  const [activeView, setActiveView] = useState("table");
+
   // Advanced filter state
   const [filters, setFilters] = useState({
     limit: 100,
@@ -28,6 +35,7 @@ export default function Candidateslist() {
   const [searchedCandidate, setSearchedCandidate] = useState(null);
   const [isSearching, setIsSearching] = useState(false);
   const [expandedSkills, setExpandedSkills] = useState(null); // candidate_id or null
+  const [isExporting, setIsExporting] = useState(false);
 
   const queryClient = useQueryClient();
 
@@ -117,6 +125,88 @@ export default function Candidateslist() {
     setSearchId("");
   };
 
+  // Export to CSV function
+  const exportToCSV = () => {
+    if (!candidates || candidates.length === 0) {
+      toast.error("No candidates to export");
+      return;
+    }
+
+    setIsExporting(true);
+
+    try {
+      // Define headers for CSV
+      const headers = [
+        "ID",
+        "Name",
+        "Email",
+        "Years Experience",
+        "Skills",
+        "Location",
+        "Status",
+      ];
+
+      // Format the data for CSV
+      const dataToExport = candidates.map((candidate) => {
+        const skills = Array.isArray(candidate.skills)
+          ? candidate.skills
+              .map((skill) =>
+                typeof skill === "object" && skill !== null
+                  ? skill.skill_name || ""
+                  : skill || ""
+              )
+              .join("; ")
+          : "";
+
+        return [
+          candidate.candidate_id,
+          candidate.full_name || "",
+          candidate.email || "",
+          candidate.years_experience || "",
+          skills,
+          candidate.location || "",
+          candidate.status || "",
+        ];
+      });
+
+      // Combine headers and data
+      const csvContent = [
+        headers.join(","),
+        ...dataToExport.map((row) =>
+          row
+            .map((cell) =>
+              // Escape quotes and wrap cells in quotes if they contain commas or quotes
+              typeof cell === "string" &&
+              (cell.includes(",") || cell.includes('"'))
+                ? `"${cell.replace(/"/g, '""')}"`
+                : cell
+            )
+            .join(",")
+        ),
+      ].join("\n");
+
+      // Create a blob and download
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.setAttribute("href", url);
+      link.setAttribute(
+        "download",
+        `candidates_export_${new Date().toISOString().split("T")[0]}.csv`
+      );
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      toast.success("Export successful");
+    } catch (error) {
+      console.error("Export error:", error);
+      toast.error("Failed to export data");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   if (error) {
     return (
       <div className="text-github-danger-fg dark:text-github-dark-danger-fg text-center py-4">
@@ -143,9 +233,53 @@ export default function Candidateslist() {
   return (
     <div>
       <div className="mb-6">
-        <h2 className="text-xl font-semibold text-github-fg-default dark:text-github-dark-fg-default mb-4">
-          Candidate Database
-        </h2>
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold text-github-fg-default dark:text-github-dark-fg-default">
+            Candidate Database
+          </h2>
+
+          <div className="flex items-center space-x-4">
+            {/* View toggle buttons */}
+            <div className="bg-github-canvas-subtle dark:bg-github-dark-canvas-subtle rounded-md p-1 flex">
+              <button
+                onClick={() => setActiveView("table")}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md flex items-center ${
+                  activeView === "table"
+                    ? "bg-white dark:bg-github-dark-canvas-default text-github-accent-fg dark:text-github-dark-accent-fg shadow-sm"
+                    : "text-github-fg-muted dark:text-github-dark-fg-muted hover:text-github-fg-default dark:hover:text-github-dark-fg-default"
+                }`}
+              >
+                <TableCellsIcon className="h-4 w-4 mr-1.5" />
+                Table View
+              </button>
+              <button
+                onClick={() => setActiveView("skills")}
+                className={`px-3 py-1.5 text-sm font-medium rounded-md flex items-center ${
+                  activeView === "skills"
+                    ? "bg-white dark:bg-github-dark-canvas-default text-github-accent-fg dark:text-github-dark-accent-fg shadow-sm"
+                    : "text-github-fg-muted dark:text-github-dark-fg-muted hover:text-github-fg-default dark:hover:text-github-dark-fg-default"
+                }`}
+              >
+                <ChartBarIcon className="h-4 w-4 mr-1.5" />
+                Skills Graph
+              </button>
+            </div>
+
+            <button
+              onClick={exportToCSV}
+              disabled={
+                isExporting ||
+                isLoading ||
+                !candidates ||
+                candidates.length === 0
+              }
+              className="btn-github-primary flex items-center space-x-1 text-sm"
+            >
+              <ArrowDownTrayIcon className="h-4 w-4 mr-1" />
+              {isExporting ? "Exporting..." : "Export CSV"}
+            </button>
+          </div>
+        </div>
 
         <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
           {/* Status Filter */}
@@ -320,247 +454,265 @@ export default function Candidateslist() {
         </div>
       )}
 
-      {/* Candidates Table */}
-      <div className="overflow-x-auto rounded-md border border-github-border-default dark:border-github-dark-border-default">
-        <table className="min-w-full divide-y divide-github-border-default dark:divide-github-dark-border-default">
-          <thead className="bg-github-canvas-subtle dark:bg-github-dark-canvas-subtle">
-            <tr>
-              <th
-                scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
-              >
-                ID
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
-              >
-                Name
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
-              >
-                Email
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
-              >
-                Years Exp
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
-              >
-                Skills
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
-              >
-                Status
-              </th>
-              <th
-                scope="col"
-                className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
-              >
-                Actions
-              </th>
-            </tr>
-          </thead>
-          <tbody className="bg-github-canvas-default dark:bg-github-dark-canvas-default divide-y divide-github-border-muted dark:divide-github-dark-border-muted">
-            {isLoading ? (
-              <tr>
-                <td colSpan={7} className="px-6 py-4 text-center">
-                  <div className="flex justify-center">
-                    <svg
-                      className="animate-spin h-5 w-5 text-github-accent-emphasis dark:text-github-dark-accent-emphasis"
-                      xmlns="http://www.w3.org/2000/svg"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                    >
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                      ></circle>
-                      <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                      ></path>
-                    </svg>
-                  </div>
-                </td>
-              </tr>
-            ) : displayCandidates && displayCandidates.length > 0 ? (
-              displayCandidates.map((candidate) => (
-                <tr
-                  key={candidate.candidate_id}
-                  className="hover:bg-github-canvas-subtle dark:hover:bg-github-dark-canvas-subtle"
-                >
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-github-fg-default dark:text-github-dark-fg-default">
-                    {candidate.candidate_id}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-github-fg-default dark:text-github-dark-fg-default font-medium">
-                    {candidate.full_name}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-github-fg-muted dark:text-github-dark-fg-muted">
-                    {candidate.email || "N/A"}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-github-fg-muted dark:text-github-dark-fg-muted">
-                    {candidate.years_experience || "N/A"}
-                  </td>
-                  <td
-                    className="px-6 py-4 text-sm text-github-fg-muted dark:text-github-dark-fg-muted"
-                    style={{ position: "relative" }}
+      {/* Content Views */}
+      <motion.div
+        key={activeView}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.3 }}
+      >
+        {activeView === "table" ? (
+          /* Candidates Table */
+          <div className="overflow-x-auto rounded-md border border-github-border-default dark:border-github-dark-border-default">
+            <table className="min-w-full divide-y divide-github-border-default dark:divide-github-dark-border-default">
+              <thead className="bg-github-canvas-subtle dark:bg-github-dark-canvas-subtle">
+                <tr>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
                   >
-                    <div className="flex flex-wrap gap-1 max-w-md">
-                      {/* Display "No skills listed" if no skills are available */}
-                      {!candidate.skills || candidate.skills.length === 0 ? (
-                        <span className="text-sm text-github-fg-muted dark:text-github-dark-fg-muted">
-                          No skills listed
-                        </span>
-                      ) : (
-                        <>
-                          {candidate.skills.slice(0, 5).map((skill, idx) => {
-                            const skillName =
-                              typeof skill === "object" && skill !== null
-                                ? skill.skill_name || "Unknown"
-                                : typeof skill === "string"
-                                ? skill
-                                : "Unknown";
-                            return (
-                              <span
-                                key={idx}
-                                className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-accent-subtle dark:bg-github-dark-accent-subtle text-github-accent-fg dark:text-github-dark-accent-fg border border-github-accent-muted dark:border-github-dark-accent-muted"
-                                title={skillName}
-                              >
-                                {skillName}
-                              </span>
-                            );
-                          })}
-                          {/* Show the "+X more" badge if there are more than 5 skills */}
-                          {candidate.skills.length > 5 && (
-                            <span
-                              className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-neutral-muted dark:bg-github-dark-neutral-muted cursor-pointer hover:bg-github-accent-subtle dark:hover:bg-github-dark-accent-subtle"
-                              onClick={() =>
-                                setExpandedSkills(
-                                  expandedSkills === candidate.candidate_id
-                                    ? null
-                                    : candidate.candidate_id
-                                )
-                              }
-                            >
-                              +{candidate.skills.length - 5} more
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </div>
-                    {/* Popup for all skills */}
-                    {expandedSkills === candidate.candidate_id &&
-                      candidate.skills.length > 5 && (
-                        <div
-                          className="absolute z-50 mt-2 left-0 bg-github-canvas-default dark:bg-github-dark-canvas-default border border-github-border-default dark:border-github-dark-border-default rounded shadow-lg p-4 min-w-[200px] max-w-[350px]"
-                          style={{ top: "100%", minWidth: 200 }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <div className="flex justify-between items-center mb-2">
-                            <span className="font-semibold text-sm">
-                              All Skills
-                            </span>
-                            <button
-                              className="ml-2 text-xs text-github-fg-muted dark:text-github-dark-fg-muted hover:text-github-danger-fg"
-                              onClick={() => setExpandedSkills(null)}
-                            >
-                              Close
-                            </button>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            {candidate.skills.map((skill, idx) => {
-                              const skillName =
-                                typeof skill === "object" && skill !== null
-                                  ? skill.skill_name || "Unknown"
-                                  : typeof skill === "string"
-                                  ? skill
-                                  : "Unknown";
-                              return (
-                                <span
-                                  key={idx}
-                                  className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-accent-subtle dark:bg-github-dark-accent-subtle text-github-accent-fg dark:text-github-dark-accent-fg border border-github-accent-muted dark:border-github-dark-accent-muted"
-                                  title={skillName}
-                                >
-                                  {skillName}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        statusBadgeColors[candidate.status]
-                      }`}
-                    >
-                      {candidate.status}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
-                    {candidate.status === "shortlisted" ? (
-                      <button
-                        onClick={() =>
-                          unshortlist.mutate(candidate.candidate_id)
-                        }
-                        disabled={unshortlist.isPending}
-                        className="btn-github text-sm hover:bg-github-danger-subtle dark:hover:bg-github-dark-danger-subtle hover:text-github-danger-fg dark:hover:text-github-dark-danger-fg"
-                      >
-                        {unshortlist.isPending &&
-                        unshortlist.variables === candidate.candidate_id ? (
-                          <ChevronUpIcon className="animate-bounce h-4 w-4" />
-                        ) : (
-                          <>
-                            <XMarkIcon className="h-4 w-4 inline mr-1" />
-                            Unshortlist
-                          </>
-                        )}
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => shortlist.mutate(candidate.candidate_id)}
-                        disabled={shortlist.isPending}
-                        className={`btn-github text-sm hover:bg-github-success-subtle dark:hover:bg-github-dark-success-subtle hover:text-github-success-fg dark:hover:text-github-dark-success-fg`}
-                      >
-                        {shortlist.isPending &&
-                        shortlist.variables === candidate.candidate_id ? (
-                          <ChevronUpIcon className="animate-bounce h-4 w-4" />
-                        ) : (
-                          "Shortlist"
-                        )}
-                      </button>
-                    )}
-                  </td>
+                    ID
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
+                  >
+                    Name
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
+                  >
+                    Email
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
+                  >
+                    Years Exp
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
+                  >
+                    Skills
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
+                  >
+                    Status
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-6 py-3 text-left text-xs font-medium text-github-fg-muted dark:text-github-dark-fg-muted uppercase tracking-wider"
+                  >
+                    Actions
+                  </th>
                 </tr>
-              ))
-            ) : (
-              <tr>
-                <td
-                  colSpan={7}
-                  className="px-6 py-4 text-center text-sm text-github-fg-muted dark:text-github-dark-fg-muted"
-                >
-                  No candidates found
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+              </thead>
+              <tbody className="bg-github-canvas-default dark:bg-github-dark-canvas-default divide-y divide-github-border-muted dark:divide-github-dark-border-muted">
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={7} className="px-6 py-4 text-center">
+                      <div className="flex justify-center">
+                        <svg
+                          className="animate-spin h-5 w-5 text-github-accent-emphasis dark:text-github-dark-accent-emphasis"
+                          xmlns="http://www.w3.org/2000/svg"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          ></circle>
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          ></path>
+                        </svg>
+                      </div>
+                    </td>
+                  </tr>
+                ) : displayCandidates && displayCandidates.length > 0 ? (
+                  displayCandidates.map((candidate) => (
+                    <tr
+                      key={candidate.candidate_id}
+                      className="hover:bg-github-canvas-subtle dark:hover:bg-github-dark-canvas-subtle"
+                    >
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-github-fg-default dark:text-github-dark-fg-default">
+                        {candidate.candidate_id}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-github-fg-default dark:text-github-dark-fg-default font-medium">
+                        {candidate.full_name}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-github-fg-muted dark:text-github-dark-fg-muted">
+                        {candidate.email || "N/A"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-github-fg-muted dark:text-github-dark-fg-muted">
+                        {candidate.years_experience || "N/A"}
+                      </td>
+                      <td
+                        className="px-6 py-4 text-sm text-github-fg-muted dark:text-github-dark-fg-muted"
+                        style={{ position: "relative" }}
+                      >
+                        <div className="flex flex-wrap gap-1 max-w-md">
+                          {/* Display "No skills listed" if no skills are available */}
+                          {!candidate.skills ||
+                          candidate.skills.length === 0 ? (
+                            <span className="text-sm text-github-fg-muted dark:text-github-dark-fg-muted">
+                              No skills listed
+                            </span>
+                          ) : (
+                            <>
+                              {candidate.skills
+                                .slice(0, 5)
+                                .map((skill, idx) => {
+                                  const skillName =
+                                    typeof skill === "object" && skill !== null
+                                      ? skill.skill_name || "Unknown"
+                                      : typeof skill === "string"
+                                      ? skill
+                                      : "Unknown";
+                                  return (
+                                    <span
+                                      key={idx}
+                                      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-accent-subtle dark:bg-github-dark-accent-subtle text-github-accent-fg dark:text-github-dark-accent-fg border border-github-accent-muted dark:border-github-dark-accent-muted"
+                                      title={skillName}
+                                    >
+                                      {skillName}
+                                    </span>
+                                  );
+                                })}
+                              {/* Show the "+X more" badge if there are more than 5 skills */}
+                              {candidate.skills.length > 5 && (
+                                <span
+                                  className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-neutral-muted dark:bg-github-dark-neutral-muted cursor-pointer hover:bg-github-accent-subtle dark:hover:bg-github-dark-accent-subtle"
+                                  onClick={() =>
+                                    setExpandedSkills(
+                                      expandedSkills === candidate.candidate_id
+                                        ? null
+                                        : candidate.candidate_id
+                                    )
+                                  }
+                                >
+                                  +{candidate.skills.length - 5} more
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        {/* Popup for all skills */}
+                        {expandedSkills === candidate.candidate_id &&
+                          candidate.skills.length > 5 && (
+                            <div
+                              className="absolute z-50 mt-2 left-0 bg-github-canvas-default dark:bg-github-dark-canvas-default border border-github-border-default dark:border-github-dark-border-default rounded shadow-lg p-4 min-w-[200px] max-w-[350px]"
+                              style={{ top: "100%", minWidth: 200 }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex justify-between items-center mb-2">
+                                <span className="font-semibold text-sm">
+                                  All Skills
+                                </span>
+                                <button
+                                  className="ml-2 text-xs text-github-fg-muted dark:text-github-dark-fg-muted hover:text-github-danger-fg"
+                                  onClick={() => setExpandedSkills(null)}
+                                >
+                                  Close
+                                </button>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {candidate.skills.map((skill, idx) => {
+                                  const skillName =
+                                    typeof skill === "object" && skill !== null
+                                      ? skill.skill_name || "Unknown"
+                                      : typeof skill === "string"
+                                      ? skill
+                                      : "Unknown";
+                                  return (
+                                    <span
+                                      key={idx}
+                                      className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-github-accent-subtle dark:bg-github-dark-accent-subtle text-github-accent-fg dark:text-github-dark-accent-fg border border-github-accent-muted dark:border-github-dark-accent-muted"
+                                      title={skillName}
+                                    >
+                                      {skillName}
+                                    </span>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                            statusBadgeColors[candidate.status]
+                          }`}
+                        >
+                          {candidate.status}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium space-x-2">
+                        {candidate.status === "shortlisted" ? (
+                          <button
+                            onClick={() =>
+                              unshortlist.mutate(candidate.candidate_id)
+                            }
+                            disabled={unshortlist.isPending}
+                            className="btn-github text-sm hover:bg-github-danger-subtle dark:hover:bg-github-dark-danger-subtle hover:text-github-danger-fg dark:hover:text-github-dark-danger-fg"
+                          >
+                            {unshortlist.isPending &&
+                            unshortlist.variables === candidate.candidate_id ? (
+                              <ChevronUpIcon className="animate-bounce h-4 w-4" />
+                            ) : (
+                              <>
+                                <XMarkIcon className="h-4 w-4 inline mr-1" />
+                                Unshortlist
+                              </>
+                            )}
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() =>
+                              shortlist.mutate(candidate.candidate_id)
+                            }
+                            disabled={shortlist.isPending}
+                            className={`btn-github text-sm hover:bg-github-success-subtle dark:hover:bg-github-dark-success-subtle hover:text-github-success-fg dark:hover:text-github-dark-success-fg`}
+                          >
+                            {shortlist.isPending &&
+                            shortlist.variables === candidate.candidate_id ? (
+                              <ChevronUpIcon className="animate-bounce h-4 w-4" />
+                            ) : (
+                              "Shortlist"
+                            )}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="px-6 py-4 text-center text-sm text-github-fg-muted dark:text-github-dark-fg-muted"
+                    >
+                      No candidates found
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          /* Skills Graph Visualization */
+          <SkillGraphVisualizer candidates={displayCandidates} />
+        )}
+      </motion.div>
     </div>
   );
 }

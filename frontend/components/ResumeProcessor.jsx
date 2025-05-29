@@ -102,8 +102,10 @@ export default function TalentHub() {
             transition={{ delay: 0.8 }}
             onClick={() => setActiveTab("upload")}
             className="mt-6 btn-github-primary text-lg px-8 py-3"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
           >
-            Get Started
+            Start Processing Resumes
           </motion.button>
         </motion.div>
       </motion.div>

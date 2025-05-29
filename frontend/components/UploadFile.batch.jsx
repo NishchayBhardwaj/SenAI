@@ -91,30 +91,27 @@ export default function UploadFileBatch() {
     },
   });
 
-  const onDrop = useCallback(
-    (acceptedFiles) => {
-      const filesWithId = acceptedFiles
-        .map((file) => {
-          if (file.size > 10 * 1024 * 1024) {
-            toast.error(
-              `File ${file.name} is too large. Maximum size is 10MB.`
-            );
-            return null;
-          }
-          return Object.assign(file, {
-            id: `${file.name}-${Date.now()}-${Math.random()}`,
-          });
-        })
-        .filter(Boolean);
-
-      if (uploadMode === "single") {
-        setFiles(filesWithId.slice(0, 1));
-      } else {
-        setFiles((prev) => [...prev, ...filesWithId]);
+  const onDrop = useCallback((acceptedFiles) => {
+    // Additional validation for corrupted or empty files
+    const validatedFiles = acceptedFiles.filter((file) => {
+      // Basic size check - files under 100 bytes are likely empty or corrupted
+      if (file.size < 100) {
+        toast.error(`${file.name} appears to be empty or corrupted`);
+        return false;
       }
-    },
-    [uploadMode]
-  );
+      return true;
+    });
+
+    const newFiles = validatedFiles.map((file) => ({
+      id: `${file.name}-${Date.now()}`,
+      file,
+      status: "idle", // idle, uploading, success, error
+      error: null,
+      candidate_id: null,
+    }));
+
+    setFiles((prev) => [...prev, ...newFiles]);
+  }, []);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,

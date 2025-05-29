@@ -1,10 +1,14 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import ProtectedZone from "../../components/Protected";
 import CandidateToolbox from "../../components/ResumeProcessor";
+import { useRouteProtection } from "../../src/lib/routes";
 
 const Workspace = () => {
+  // Use route protection to verify authentication
+  useRouteProtection();
+
   return (
     <ProtectedZone>
       <div className="space-y-6">
