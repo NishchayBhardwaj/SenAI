@@ -382,6 +382,8 @@ export default function ShortlistingForm() {
   });
 
   const [validationErrors, setValidationErrors] = useState({
+    job_title: "",
+    job_description: "",
     required_skills: "",
     preferred_skills: "",
     preferred_locations: "",
@@ -410,6 +412,14 @@ export default function ShortlistingForm() {
       ...prev,
       [name]: value,
     }));
+
+    // Clear validation error for this field when it changes
+    if (validationErrors[name]) {
+      setValidationErrors((prev) => ({
+        ...prev,
+        [name]: "",
+      }));
+    }
   };
 
   const validateArrayInput = (values, field) => {
@@ -467,6 +477,14 @@ export default function ShortlistingForm() {
               ...prev,
               [field]: values,
             }));
+
+            // Clear validation error for this field when items are added
+            if (validationErrors[field]) {
+              setValidationErrors((prev) => ({
+                ...prev,
+                [field]: "",
+              }));
+            }
           }
         }
         setInputValues((prev) => ({
@@ -677,8 +695,41 @@ export default function ShortlistingForm() {
     );
   };
 
+  const validateForm = () => {
+    const errors = {};
+    let isValid = true;
+
+    // Validate job title (required)
+    if (!formData.job_title.trim()) {
+      errors.job_title = "Job title is required";
+      isValid = false;
+    }
+
+    // Validate job description (required)
+    if (!formData.job_description.trim()) {
+      errors.job_description = "Job description is required";
+      isValid = false;
+    }
+
+    // Validate required skills (at least one required)
+    if (formData.required_skills.length === 0) {
+      errors.required_skills = "At least one required skill must be added";
+      isValid = false;
+    }
+
+    setValidationErrors(errors);
+    return isValid;
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Validate form before submission
+    if (!validateForm()) {
+      toast.error("Please fill all required fields");
+      return;
+    }
+
     setIsLoading(true);
     setPreviewError(null);
     setIsProcessing(true);
@@ -756,19 +807,32 @@ export default function ShortlistingForm() {
         Shortlisting Criteria
       </h2>
 
+      <div className="text-sm text-github-fg-muted mb-4">
+        <span className="text-github-danger-fg">*</span> Required fields
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Basic Job Information */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="block text-sm font-medium mb-2">Job Title</label>
+            <label className="block text-sm font-medium mb-2">
+              Job Title <span className="text-github-danger-fg">*</span>
+            </label>
             <input
               type="text"
               name="job_title"
               value={formData.job_title}
               onChange={handleInputChange}
-              className="github-input w-full"
+              className={`github-input w-full ${
+                validationErrors.job_title ? "border-red-500" : ""
+              }`}
               placeholder="e.g. Senior Software Engineer"
             />
+            {validationErrors.job_title && (
+              <p className="text-red-500 text-sm mt-1">
+                {validationErrors.job_title}
+              </p>
+            )}
           </div>
 
           <div>
@@ -789,22 +853,29 @@ export default function ShortlistingForm() {
         {/* Job Description */}
         <div>
           <label className="block text-sm font-medium mb-2">
-            Job Description
+            Job Description <span className="text-github-danger-fg">*</span>
           </label>
           <textarea
             name="job_description"
             value={formData.job_description}
             onChange={handleInputChange}
-            className="github-input w-full h-32"
+            className={`github-input w-full h-32 ${
+              validationErrors.job_description ? "border-red-500" : ""
+            }`}
             placeholder="Enter detailed job description..."
           />
+          {validationErrors.job_description && (
+            <p className="text-red-500 text-sm mt-1">
+              {validationErrors.job_description}
+            </p>
+          )}
         </div>
 
         {/* Skills */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
             <label className="block text-sm font-medium mb-2">
-              Required Skills
+              Required Skills <span className="text-github-danger-fg">*</span>
             </label>
             <div className="space-y-2">
               <input
